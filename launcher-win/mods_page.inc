@@ -11,10 +11,10 @@
 //   launcher_bg.jpg            the launcher's background picture (your own; any JPG)
 
 static HWND g_mRoster, g_mRosterNote, g_mLines, g_mPicker, g_mSaved;
-static HWND g_mAuto, g_mHead1, g_mHead2, g_mCpu, g_mExtra, g_mPa, g_mIcons, g_mRebuild, g_mBgNote, g_mBgPick, g_mBgClear;
+static HWND g_mRatings, g_mRatingsNote, g_mAuto, g_mHead1, g_mHead2, g_mCpu, g_mExtra, g_mPa, g_mIcons, g_mRebuild, g_mBgNote, g_mBgPick, g_mBgClear;
 static std::vector<HWND> g_modsCtl;
 static std::vector<std::wstring> g_rosterSets;   // folder names, index 0 = original ("")
-enum { ID_M_ROSTER = 400, ID_M_LINES, ID_M_PICKER, ID_M_CPU, ID_M_EXTRA, ID_M_PA, ID_M_ICONS, ID_M_REBUILD, ID_M_BGPICK, ID_M_BGCLEAR, ID_M_AUTO };
+enum { ID_M_ROSTER = 400, ID_M_LINES, ID_M_PICKER, ID_M_CPU, ID_M_EXTRA, ID_M_PA, ID_M_ICONS, ID_M_REBUILD, ID_M_BGPICK, ID_M_BGCLEAR, ID_M_AUTO, ID_M_RATINGS };
 
 static std::wstring ModsDir() { return g_exeDir + L"\\mods"; }
 static std::wstring ReadWord(const std::wstring& path) {
@@ -40,7 +40,7 @@ static void FillModsControls() {
         do {
             if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == L'.') continue;
             std::wstring set = fd.cFileName;
-            if (!FileExists(ModsDir() + L"\\rosters\\" + set + L"\\qkl_boot.ast")) continue;   // not built yet
+            if (!FileExists(ModsDir() + L"\\rosters\\" + set + L"\\qkl_boot.ast") && !FileExists(ModsDir() + L"\\rosters\\" + set + L"\\roster.tsv")) continue;
             g_rosterSets.push_back(set);
             SendMessageW(g_mRoster, CB_ADDSTRING, 0, (LPARAM)RosterDisplayName(set).c_str());
         } while (FindNextFileW(h, &fd));
@@ -50,6 +50,13 @@ static void FillModsControls() {
     int sel = 0;
     for (size_t i = 1; i < g_rosterSets.size(); i++) if (_wcsicmp(g_rosterSets[i].c_str(), cur.c_str()) == 0) sel = (int)i;
     SendMessageW(g_mRoster, CB_SETCURSEL, sel, 0);
+    {   // the selected roster's ratings: the player's own file, or the game's own ratings
+        int r = (int)SendMessageW(g_mRoster, CB_GETCURSEL, 0, 0);
+        bool set = r > 0 && r < (int)g_rosterSets.size();
+        bool has = set && FileExists(ModsDir() + L"\\rosters\\" + g_rosterSets[r] + L"\\ratings.csv");
+        EnableWindow(g_mRatings, set);
+        SetWindowTextW(g_mRatingsNote, !set ? L"" : has ? L"Ratings: from your ratings file." : L"Ratings: the game's own (new players take their spot's ratings). Add a ratings CSV of your own for exact ratings.");
+    }
     std::wstring lines = ReadWord(ModsDir() + L"\\lines.txt");
     SendMessageW(g_mLines, CB_SETCURSEL, lines == L"7" ? 1 : (lines == L"full" || lines == L"11") ? 2 : 0, 0);
     SendMessageW(g_mPicker, BM_SETCHECK, FileExists(ModsDir() + L"\\lineup_picker.off") ? BST_UNCHECKED : BST_CHECKED, 0);
@@ -87,7 +94,7 @@ static void CreateModsPage(HWND hw, HFONT ui) {
     };
     mk(L"STATIC", L"Roster", 0, 0);
     g_mRoster = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, ID_M_ROSTER);
-    g_mRosterNote = mk(L"STATIC", L"The original roster is never changed. Other rosters are folders in mods\\rosters (built with the dev tools).", 0, 0);
+    g_mRosterNote = mk(L"STATIC", L"The original roster is never changed. Other rosters come with updates (mods\\rosters) and are built from your game when you press Play.", 0, 0);
     mk(L"STATIC", L"Players per side", 0, 0);
     g_mLines = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, ID_M_LINES);
     for (const wchar_t* s : {L"5 on 5 (normal)", L"7 on 7", L"Full lines"}) SendMessageW(g_mLines, CB_ADDSTRING, 0, (LPARAM)s);
@@ -104,6 +111,8 @@ static void CreateModsPage(HWND hw, HFONT ui) {
     g_mBgNote = mk(L"STATIC", L"", 0, 0);
     g_mBgPick = mk(L"BUTTON", L"Choose picture...", WS_TABSTOP, ID_M_BGPICK);
     g_mBgClear = mk(L"BUTTON", L"Remove", WS_TABSTOP, ID_M_BGCLEAR);
+    g_mRatings = mk(L"BUTTON", L"Ratings file...", WS_TABSTOP, ID_M_RATINGS);
+    g_mRatingsNote = mk(L"STATIC", L"", 0, 0);
     g_mAuto = mk(L"BUTTON", L"Install updates automatically (rosters, mods and fixes from the project)", BS_AUTOCHECKBOX | WS_TABSTOP, ID_M_AUTO);
 }
 
@@ -113,22 +122,24 @@ static void LayoutModsPage(int x, int t, int right) {
     MoveWindow(g_modsCtl[0], x, t + 5, lw, 20, TRUE);           // Roster
     MoveWindow(g_mRoster, x + lw, t, 340, 300, TRUE);
     MoveWindow(g_mRosterNote, x + lw, t + 34, right - x - lw, 20, TRUE);
-    MoveWindow(g_modsCtl[3], x, t + 85, lw, 20, TRUE);          // Players per side
-    MoveWindow(g_mLines, x + lw, t + 80, 340, 200, TRUE);
-    MoveWindow(g_modsCtl[5], x + lw, t + 114, right - x - lw, 20, TRUE);
-    MoveWindow(g_mPicker, x, t + 150, 520, 24, TRUE);
-    MoveWindow(g_mHead1, x, t + 196, 300, 20, TRUE);
-    MoveWindow(g_mCpu, x, t + 222, 620, 24, TRUE);
-    MoveWindow(g_mExtra, x, t + 250, 620, 24, TRUE);
-    MoveWindow(g_mPa, x, t + 278, 620, 24, TRUE);
-    MoveWindow(g_mIcons, x, t + 306, 620, 24, TRUE);
-    MoveWindow(g_mRebuild, x, t + 340, 190, 32, TRUE);
-    MoveWindow(g_mHead2, x, t + 396, 300, 20, TRUE);
-    MoveWindow(g_mBgNote, x, t + 420, right - x, 20, TRUE);
-    MoveWindow(g_mBgPick, x, t + 448, 170, 32, TRUE);
-    MoveWindow(g_mBgClear, x + 182, t + 448, 110, 32, TRUE);
-    MoveWindow(g_mAuto, x, t + 496, 620, 24, TRUE);
-    MoveWindow(g_mSaved, x, t + 530, right - x, 20, TRUE);
+    MoveWindow(g_mRatings, x + lw + 352, t - 1, 140, 30, TRUE);
+    MoveWindow(g_mRatingsNote, x + lw, t + 54, right - x - lw, 20, TRUE);
+    MoveWindow(g_modsCtl[3], x, t + 105, lw, 20, TRUE);          // Players per side
+    MoveWindow(g_mLines, x + lw, t + 100, 340, 200, TRUE);
+    MoveWindow(g_modsCtl[5], x + lw, t + 134, right - x - lw, 20, TRUE);
+    MoveWindow(g_mPicker, x, t + 166, 520, 24, TRUE);
+    MoveWindow(g_mHead1, x, t + 210, 300, 20, TRUE);
+    MoveWindow(g_mCpu, x, t + 236, 620, 24, TRUE);
+    MoveWindow(g_mExtra, x, t + 264, 620, 24, TRUE);
+    MoveWindow(g_mPa, x, t + 292, 620, 24, TRUE);
+    MoveWindow(g_mIcons, x, t + 320, 620, 24, TRUE);
+    MoveWindow(g_mRebuild, x, t + 352, 190, 32, TRUE);
+    MoveWindow(g_mHead2, x, t + 404, 300, 20, TRUE);
+    MoveWindow(g_mBgNote, x, t + 428, right - x, 20, TRUE);
+    MoveWindow(g_mBgPick, x, t + 454, 170, 32, TRUE);
+    MoveWindow(g_mBgClear, x + 182, t + 454, 110, 32, TRUE);
+    MoveWindow(g_mAuto, x, t + 500, 620, 24, TRUE);
+    MoveWindow(g_mSaved, x, t + 534, right - x, 20, TRUE);
 }
 
 static void ShowModsPage(bool show) {
@@ -137,8 +148,20 @@ static void ShowModsPage(bool show) {
 }
 
 static bool ModsCommand(int id, int code) {
-    if ((id == ID_M_ROSTER || id == ID_M_LINES) && code == CBN_SELCHANGE) { SaveMods(); return true; }
+    if ((id == ID_M_ROSTER || id == ID_M_LINES) && code == CBN_SELCHANGE) { SaveMods(); if (id == ID_M_ROSTER) FillModsControls(); return true; }
     if ((id == ID_M_PICKER || id == ID_M_CPU || id == ID_M_EXTRA || id == ID_M_PA || id == ID_M_ICONS) && code == BN_CLICKED) { SaveMods(); return true; }
+    if (id == ID_M_RATINGS && code == BN_CLICKED) {   // the player's own ratings CSV for the selected roster
+        int r = (int)SendMessageW(g_mRoster, CB_GETCURSEL, 0, 0);
+        if (r <= 0 || r >= (int)g_rosterSets.size()) return true;
+        wchar_t file[MAX_PATH] = L"";
+        OPENFILENAMEW of{}; of.lStructSize = sizeof of; of.hwndOwner = g_wnd; of.lpstrFile = file; of.nMaxFile = MAX_PATH;
+        of.lpstrFilter = L"Ratings (*.csv)\0*.csv\0"; of.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+        if (GetOpenFileNameW(&of)) {
+            std::wstring dst = ModsDir() + L"\\rosters\\" + g_rosterSets[r] + L"\\ratings.csv";
+            SetWindowTextW(g_mSaved, CopyFileW(file, dst.c_str(), FALSE) ? L"Ratings file added - the roster is rebuilt with it the next time you press Play." : L"Could not copy that file.");
+        }
+        FillModsControls(); return true;
+    }
     if (id == ID_M_AUTO && code == BN_CLICKED) {
         WritePrivateProfileStringW(L"launcher", L"autoupdate", SendMessageW(g_mAuto, BM_GETCHECK, 0, 0) == BST_CHECKED ? L"1" : L"0", (g_exeDir + L"\\launcher.ini").c_str());
         SetWindowTextW(g_mSaved, L"Saved."); return true;

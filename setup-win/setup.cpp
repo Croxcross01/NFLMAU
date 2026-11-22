@@ -179,7 +179,7 @@ static bool Install() {
     std::wstring mods = dir + L"\\mods"; bc::Mkdirs(mods);
     auto word = [&](const wchar_t* f, const char* w) { bc::WriteText(mods + L"\\" + f, std::string(w) + "\n"); };
     word(L"lines.txt", g_ch.lines == 1 ? "7" : g_ch.lines == 2 ? "full" : "5");
-    if (!bc::IsFile(mods + L"\\roster.txt")) word(L"roster.txt", "original");
+    if (!bc::IsFile(mods + L"\\roster.txt")) word(L"roster.txt", bc::IsFile(mods + L"\\rosters\\2027\\roster.tsv") ? "2027" : "original");
     word(L"cpu_playbook.txt", g_ch.cpuBook ? "on" : "off");
     word(L"extra_db.txt", g_ch.extraDb ? "ss" : "off");
     word(L"pa_fix.txt", g_ch.paFix ? "on" : "off");

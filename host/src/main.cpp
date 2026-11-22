@@ -253,6 +253,14 @@ int main(int argc, char** argv) {
     if (getenv("MADDEN_TRACE")) g_trace = true;
     if (imgPath.empty()) imgPath = gameDir + "/Arcadegame.dll";
     SetEnvDefault("MADDEN_GAME_DIR", gameDir);
+    {   // a roster set (mods/roster.txt) with a roster.tsv is built from your game files first, when its inputs changed
+        bool BuildRosterSet(const std::string& gameDir, const std::string& setDir);
+        const char* mr = getenv("MADDEN_MODS_ROOT"); std::string mods = mr ? mr : "mods", set;
+        if (FILE* f = fopen((mods + "/roster.txt").c_str(), "rb")) { char b[64] = {}; if (fscanf(f, "%63s", b) == 1) set = b; fclose(f); }
+        bool okName = !set.empty() && set != "original";
+        for (char c : set) if (!isalnum((unsigned char)c) && c != '_' && c != '-') okName = false;
+        if (okName) BuildRosterSet(getenv("MADDEN_GAME_DIR") ? getenv("MADDEN_GAME_DIR") : gameDir, mods + "/rosters/" + set);
+    }
 
     g_base = (uint8_t*)PlatReserveGuestMemory(PPC_MEMORY_SIZE);
     if (!g_base) { fprintf(stderr, "could not reserve 4 GB of guest address space\n"); return 1; }

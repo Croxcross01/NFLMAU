@@ -223,12 +223,18 @@ inline void ApplyPackFiles(const std::wstring& install, const std::wstring& self
         }
         CopyFileW(app.c_str(), dst.c_str(), FALSE);
     }
-    WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW((pack + L"\\mods\\*").c_str(), &fd);
-    if (h != INVALID_HANDLE_VALUE) {
-        Mkdirs(install + L"\\mods");
-        do { if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) CopyFileW((pack + L"\\mods\\" + fd.cFileName).c_str(), (install + L"\\mods\\" + fd.cFileName).c_str(), FALSE); } while (FindNextFileW(h, &fd));
+    std::function<void(const std::wstring&, const std::wstring&)> copyTree = [&](const std::wstring& from, const std::wstring& to) {
+        WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW((from + L"\\*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) return;
+        Mkdirs(to);
+        do {
+            if (fd.cFileName[0] == L'.') continue;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) copyTree(from + L"\\" + fd.cFileName, to + L"\\" + fd.cFileName);
+            else CopyFileW((from + L"\\" + fd.cFileName).c_str(), (to + L"\\" + fd.cFileName).c_str(), FALSE);
+        } while (FindNextFileW(h, &fd));
         FindClose(h);
-    }
+    };
+    copyTree(pack + L"\\mods", install + L"\\mods");   // roster sets and other project mod data (your own files are kept)
 }
 
 // "1.2.10" > "1.2.9"
