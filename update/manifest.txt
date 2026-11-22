@@ -1,5 +1,5 @@
-version=1.0.4
-pack=update/pack-1.0.4.zip
-sha256=aa1ca69b879a9be24510f1cd0d80c829cff291ce54d121f8dfdd79fc306b98e1
+version=1.0.5
+pack=update/pack-1.0.5.zip
+sha256=67aad8dd430953e7bc5841faf3b37a851937c75e59f317ac7d9f2d448527f1ee
 rebuild=0
-notes=Lineup window fix; 7-on-7 alignments built from your game
+notes=Smoother frame pacing: game timing locked to your display

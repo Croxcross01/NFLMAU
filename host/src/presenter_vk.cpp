@@ -1,3 +1,4 @@
+#include <cmath>
 void DumpGuestThreads();
 // Game window + Vulkan presenter. Each XE_SWAP hands us the front buffer (a guest texture); we untile it,
 // convert it to RGBA8, upload it and scale it into the window (aspect preserved). Tiling/swizzle rules follow
@@ -461,6 +462,21 @@ void RenderThread() {
 // Called by the command processor on XE_SWAP.
 void PresenterSubmitSwap(const uint32_t fetch[6], uint32_t phys, uint32_t width, uint32_t height) {
     if (!g_running) return;
+    {   // frame pacing numbers in the log every ~20 s: game frame rate, how even the frames are, long frames
+        static std::vector<double> iv; static auto last = std::chrono::steady_clock::now(); static int n = 0;
+        auto now = std::chrono::steady_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(now - last).count(); last = now;
+        if (ms < 1000) iv.push_back(ms);
+        if (iv.size() >= 600) {
+            std::vector<double> v = iv; std::sort(v.begin(), v.end());
+            double sum = 0; for (double x : v) sum += x;
+            double mean = sum / v.size(), sd = 0; for (double x : v) sd += (x - mean) * (x - mean); sd = std::sqrt(sd / v.size());
+            int longF = 0; for (double x : v) if (x > mean * 1.4) longF++;
+            if (n++ < 200) fprintf(stderr, "[perf] game %.1f fps, frame %.1f ms avg (spread %.1f ms, 95%% under %.1f ms, slowest %.1f ms), %d long frames of %zu\n",
+                                   1000.0 / mean, mean, sd, v[v.size() * 95 / 100], v.back(), longF, v.size());
+            iv.clear();
+        }
+    }
     std::lock_guard<std::mutex> l(g_frameLock);
     memcpy(g_frame.fetch, fetch, sizeof g_frame.fetch);
     g_frame.phys = phys & 0x1FFFFFFF; g_frame.width = std::min(width, 4096u); g_frame.height = std::min(height, 4096u);

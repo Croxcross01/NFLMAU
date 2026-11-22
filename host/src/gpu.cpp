@@ -5,6 +5,13 @@
 #include "kernel.h"
 #include "gpu_vk.h"
 #include <atomic>
+#include <cmath>
+#include <cstdlib>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 #include <thread>
 #include <chrono>
 #include <vector>
@@ -370,14 +377,49 @@ void CommandProcessorThread() {
     }
 }
 
+// Vblank: the game paces itself on these (a 30 fps frame = 2 vblanks). Locked to the display's real refresh when it
+// is 60 Hz or a multiple of it (DwmFlush returns at each composition = refresh), so every game frame is shown for the
+// same number of refreshes; a free-running 60 Hz timer drifts against the display and every few seconds a frame was
+// held one refresh too long or too short (judder). Other refresh rates (75, 144 Hz ...) keep the precise timer.
+#ifdef _WIN32
+static int DisplayHz() {
+    DEVMODEW dm{}; dm.dmSize = sizeof dm;
+    return EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &dm) ? (int)dm.dmDisplayFrequency : 0;
+}
+#endif
 void VblankThread() {
     GuestCaller caller;
+    auto tick = [&] { ++g_counter; DispatchInterrupt(caller, 0, 2); };
+#ifdef _WIN32
+    typedef HRESULT(WINAPI * DwmFlushFn)();
+    DwmFlushFn dwmFlush = nullptr;
+    if (HMODULE d = LoadLibraryW(L"dwmapi.dll")) dwmFlush = (DwmFlushFn)(void*)GetProcAddress(d, "DwmFlush");
+    int hz = DisplayHz();
+    int per = 0;   // display refreshes per guest vblank
+    if (hz >= 58 && hz <= 62) per = 1;
+    else if (hz > 62) { int k = (int)std::lround(hz / 60.0); if (k >= 2 && std::abs(hz - 60 * k) <= 2 * k) per = k; }
+    bool lockToDisplay = dwmFlush && per > 0 && !getenv("MADDEN_FREE_VBLANK");
+    fprintf(stderr, "[gpu] display %d Hz - vblank %s\n", hz, lockToDisplay ? (per == 1 ? "locked to the display refresh" : "locked to the display (every few refreshes)") : "from a 60 Hz timer");
+    int fastReturns = 0;
+    while (lockToDisplay) {   // falls back to the timer if DwmFlush stops waiting (composition off) or stalls
+        auto t0 = std::chrono::steady_clock::now();
+        for (int i = 0; i < per; i++) dwmFlush();
+        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        if (ms < 4.0 * per) { if (++fastReturns > 30) { fprintf(stderr, "[gpu] vblank: display sync not waiting - using the 60 Hz timer\n"); break; } std::this_thread::sleep_for(std::chrono::microseconds(16667 - (int)(ms * 1000))); }
+        else fastReturns = 0;
+        if (ms > 100.0) {   // window hidden / display asleep: keep the game going on the timer for a while
+            auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2), next = std::chrono::steady_clock::now();
+            while (std::chrono::steady_clock::now() < until) { next += std::chrono::microseconds(16667); std::this_thread::sleep_until(next); tick(); }
+            continue;
+        }
+        tick();
+    }
+#endif
     auto next = std::chrono::steady_clock::now();
     for (;;) {
         next += std::chrono::microseconds(16667);
         std::this_thread::sleep_until(next);
-        ++g_counter;
-        DispatchInterrupt(caller, 0, 2);
+        tick();
     }
 }
 
