@@ -1,5 +1,5 @@
-version=1.0.9
-pack=update/pack-1.0.9.zip
-sha256=88e7e69aa3fcc589bca52e77cbab037c1853bd51236eccd9b2f1432bbb10c5f7
+version=1.0.10
+pack=update/pack-1.0.10.zip
+sha256=07d3805b3af5a7d28e0870e814e03884178dc565e41a3ea7d9a347768c4bf200
 rebuild=0
-notes=Load-time measurements in the log
+notes=Diagnostics for players standing in the end zone

@@ -1637,6 +1637,29 @@ void PcTick() {
         double sec = (double)ticks * std::chrono::steady_clock::period::num / std::chrono::steady_clock::period::den;
         fprintf(stderr, "[perf] match loaded in %.1f s (team select to the first play call, lineup window not counted)\n", sec);
     }
+    {   // diagnostics: a few seconds into the first three play calls, every player's role, flags, state and raw record
+        static int snaps = 0, held = 0; static uint32_t lastSeq = 0xFFFFFFFFu;
+        uint32_t plist = ReadU32(0x894C07D4);
+        if (snaps < 3 && obj(plist)) {
+            extern uint32_t g_iconPlayId;
+            if (lastSeq != g_iconPlayId) { lastSeq = g_iconPlayId; held = 0; }
+            if (++held == 15) {   // ~3 s after the play was set (PcTick runs every 6th frame)
+                snaps++;
+                fprintf(stderr, "[diag] players snapshot %d (lines mode %d, offense team %u)\n", snaps, g_linesMode, offT);
+                for (uint32_t team = 0; team < 2; team++)
+                    for (uint32_t i = 0; i < 11; i++) {
+                        PPCContext d = *live; d.r1.u64 = (live->r1.u32 - 0x1000) & ~15u; d.r3.u64 = plist; d.r4.u64 = i; d.r5.u64 = team;
+                        sub_8850F680(d, g_base);
+                        uint32_t pl = d.r3.u32, q = obj(pl) ? ReadU32(pl + 932) : 0;
+                        if (!obj(pl)) continue;
+                        std::string hex;
+                        for (uint32_t k = 0; k < 0x400; k += 4) { char b[10]; snprintf(b, sizeof b, "%08X", ReadU32(pl + k)); hex += b; }
+                        fprintf(stderr, "[diag] team %u slot %u role %d flags %08X%08X state %u/%u rec %s\n", team, i, obj(q) ? (int)ReadU32(q + 136) : -1,
+                                ReadU32(pl + 256), ReadU32(pl + 260), ReadU32(pl + 100), (uint32_t)g_base[pl + 112], hex.c_str());
+                    }
+            }
+        }
+    }
     {   // remember which controller played which team (for the next lineup window)
         extern uint32_t g_lineupTeams[2]; void SaveLineupSide(int side, int port);
         static uint32_t savedFor[2] = {0xFFFFFFFFu, 0xFFFFFFFFu}; static int savedPort[2] = {-1, -1};
