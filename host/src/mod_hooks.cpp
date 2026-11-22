@@ -557,6 +557,7 @@ bool GuardReleaseInline(PPCRegister& r1, PPCRegister& r11, PPCRegister& r26, PPC
 void ModMatchTeams(PPCRegister& r1, PPCRegister& r31) {
     auto str = [](uint32_t a) { std::string o; for (int i = 0; i < 40; i++) { char c = (char)g_base[a + i]; if (!c) break; o += (c >= 32 && c < 127) ? c : '?'; } return o; };
     g_matchHome = ReadU32(r31.u32 + 192); g_matchAway = ReadU32(r31.u32 + 200); g_matchSeq++;
+    { extern std::atomic<int64_t> g_matchLoadStart; g_matchLoadStart = std::chrono::steady_clock::now().time_since_epoch().count(); }
     fprintf(stderr, "[mods] match teams: home %u (%s), away %u (%s)\n", g_matchHome, str(r1.u32 + 176).c_str(),
             g_matchAway, str(r1.u32 + 208).c_str());
 }
@@ -897,7 +898,10 @@ void ModBuildDepthCharts() {
 // pick a player for each; the choice is written back into DCGA: per position the picked players get depth 0..n-1
 // and the rest of that position's depth chart follows in its old order. Positions above P (returners etc.) are left
 // alone. Off with a mods/lineup_picker.off file.
+std::atomic<int64_t> g_matchLoadStart{0}, g_pickerTime{0};   // match load timing (steady clock ticks)
 static void LineupPicker(PPCContext& live) {
+    struct PickTimer { int64_t t0 = std::chrono::steady_clock::now().time_since_epoch().count();
+        ~PickTimer() { g_pickerTime += std::chrono::steady_clock::now().time_since_epoch().count() - t0; } } pickTimer;
     {
         const char* dir = getenv("MADDEN_MODS_ROOT");
         FILE* f = fopen((std::string(dir ? dir : "mods") + "/lineup_picker.off").c_str(), "rb");
@@ -1628,6 +1632,11 @@ void PcTick() {
     uint32_t offT = call(f124, m, 0, false), defT = call(f128, m, 0, false);
     uint32_t offU = call(0, users, offT, true) & 0xFF, defU = call(0, users, defT, true) & 0xFF;
     g_pcPort[0] = (int)offU; g_pcPort[1] = (int)defU;
+    if (int64_t t0 = g_matchLoadStart.exchange(0)) {   // the match is loaded: first play call
+        int64_t ticks = std::chrono::steady_clock::now().time_since_epoch().count() - t0 - g_pickerTime.exchange(0);
+        double sec = (double)ticks * std::chrono::steady_clock::period::num / std::chrono::steady_clock::period::den;
+        fprintf(stderr, "[perf] match loaded in %.1f s (team select to the first play call, lineup window not counted)\n", sec);
+    }
     {   // remember which controller played which team (for the next lineup window)
         extern uint32_t g_lineupTeams[2]; void SaveLineupSide(int side, int port);
         static uint32_t savedFor[2] = {0xFFFFFFFFu, 0xFFFFFFFFu}; static int savedPort[2] = {-1, -1};

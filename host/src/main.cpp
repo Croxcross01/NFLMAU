@@ -1,3 +1,4 @@
+#include <chrono>
 #include <atomic>
 // Host for the recompiled Madden NFL Arcade (Xbox 360 XBLA) Arcadegame.dll.
 // Usage: madden_host [--game <folder with your extracted game files>] [--image <Arcadegame.img>] [--trace]
@@ -227,6 +228,7 @@ static void SetEnvDefault(const char* k, const std::string& v) {
 #endif
 }
 
+std::chrono::steady_clock::time_point g_hostStart = std::chrono::steady_clock::now();
 int main(int argc, char** argv) {
     // unbuffered output: when the launcher captures our output through a pipe, Windows buffers it, and a crash
     // would otherwise lose everything that was printed

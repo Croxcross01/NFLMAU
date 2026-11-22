@@ -466,6 +466,10 @@ void RenderThread() {
 // Called by the command processor on XE_SWAP.
 void PresenterSubmitSwap(const uint32_t fetch[6], uint32_t phys, uint32_t width, uint32_t height) {
     if (!g_running) return;
+    {   static bool first = true;   // how long the game took to show its first picture
+        if (first) { first = false; extern std::chrono::steady_clock::time_point g_hostStart;
+            fprintf(stderr, "[perf] first picture %.1f s after start\n", std::chrono::duration<double>(std::chrono::steady_clock::now() - g_hostStart).count()); }
+    }
     {   // frame pacing numbers in the log every ~20 s: game frame rate, how even the frames are, long frames
         static std::vector<double> iv; static auto last = std::chrono::steady_clock::now(); static int n = 0;
         auto now = std::chrono::steady_clock::now();

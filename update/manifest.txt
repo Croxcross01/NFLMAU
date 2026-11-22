@@ -1,5 +1,5 @@
-version=1.0.8
-pack=update/pack-1.0.8.zip
-sha256=b19f6bba19d3a77ab55e05b2da24150dc9876da29d3ecce36c5cc15975ea4220
+version=1.0.9
+pack=update/pack-1.0.9.zip
+sha256=88e7e69aa3fcc589bca52e77cbab037c1853bd51236eccd9b2f1432bbb10c5f7
 rebuild=0
-notes=Smooth gameplay fix: game threads really sleep while waiting
+notes=Load-time measurements in the log
