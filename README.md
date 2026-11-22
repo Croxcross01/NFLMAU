@@ -16,6 +16,11 @@ host runtime that stands in for the Xbox 360 system software.
 3. Setup downloads the free build tools (about 190 MB, once), turns *your* copy of the game into the PC version
    on your PC (roughly 5-15 minutes), and opens the launcher. Press **PLAY**.
 
+**Updates install themselves.** Each time the launcher opens it checks this repository (`update/manifest.txt`). New
+mods, fixes and launcher changes download as a small pack (a few MB) and the game is re-linked in seconds; the rare
+update that changes how the game is translated rebuilds it from your copy automatically. You can turn this off on
+the Mods page.
+
 Needs Windows 10 or 11, a graphics card with Vulkan, and your own copy of Madden NFL Arcade (XBLA). The download
 contains no game code or game data - only this project's own code and open-source parts.
 

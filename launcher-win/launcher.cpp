@@ -43,6 +43,7 @@ static void Log(const std::wstring& t) {   // any thread
 }
 
 #include "theme.inc"
+#include "update.inc"
 #include "settings_page.inc"
 #include "mods_page.inc"
 
@@ -146,6 +147,7 @@ static void RunGame(std::wstring gameDir, bool trace) {
 
 static void OnPlay() {
     if (g_proc) { if (g_proc != INVALID_HANDLE_VALUE) TerminateProcess(g_proc, 1); return; }
+    if (g_updating) { MessageBoxW(g_wnd, L"An update is being installed - PLAY is ready again in a moment.", L"Madden Arcade Unleashed", MB_ICONINFORMATION); return; }
     wchar_t p[MAX_PATH * 2]; GetWindowTextW(g_path, p, MAX_PATH * 2);
     std::wstring path = p; while (!path.empty() && (path.back() == L'\\' || path.back() == L' ')) path.pop_back();
     if (path.empty() || (!DirExists(path) && !FileExists(path))) { MessageBoxW(g_wnd, L"Choose your game folder (or package file) first.", L"Madden Arcade Unleashed", MB_ICONINFORMATION); return; }
@@ -238,6 +240,7 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT m, WPARAM wp, LPARAM lp) {
         { RECT rc; GetClientRect(hw, &rc); Layout(rc.right, rc.bottom); }
         ShowTab(PAGE_PLAY);
         SetTimer(hw, 7, 2000, nullptr);   // watch for dev tools mod updates
+        StartAutoUpdate();
         std::thread([] { DetectGpus(); PostMessageW(g_wnd, WM_GPU_DETECTED, 0, 0); }).detach();
         SendMessageW(g_log, WM_SETFONT, (WPARAM)mono, TRUE);
         SendMessageW(g_log, EM_SETLIMITTEXT, 0, 0);
@@ -287,6 +290,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
         SetTextColor((HDC)wp, kText); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush;
     case WM_TIMER: if (wp == 7) CheckModUpdate(false); return 0;
+    case WM_UPD: OnUpdMessage(wp, lp); return 0;
     case WM_GETMINMAXINFO: ((MINMAXINFO*)lp)->ptMinTrackSize = {1060, 720}; return 0;
     case WM_CTLCOLORSTATIC:   // labels and check boxes sit on the solid card
         if ((HWND)lp == g_log) { SetTextColor((HDC)wp, RGB(170, 205, 240)); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush; }

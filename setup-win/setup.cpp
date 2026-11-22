@@ -22,12 +22,9 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include "build_core.inc"
 
 // ---------------------------------------------------------------- constants
-static const wchar_t* kToolUrl = L"https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/llvm-mingw-20261117-ucrt-x86_64.zip";
-static const char* kToolSha256 = "4d002e330a0f703625aa5ccbc37e96f8f824413e163bfc7336774aabd2c3a412";
-static const wchar_t* kToolDir = L"llvm-mingw-20261117-ucrt-x86_64";
-static const char* kDllSha1 = "b4e72f27effceee64734d365ed9bb214b0772633";   // Arcadegame.dll of the supported release
 enum { WM_STEP = WM_APP + 1, WM_FINISHED };
 
 static HWND g_wnd, g_status, g_bar, g_log;
@@ -50,26 +47,6 @@ static void Log(const std::wstring& s) {
     PostMessageW(g_wnd, WM_STEP, 0, (LPARAM)copy);
 }
 static void Status(const std::wstring& s, int pct) { Log(L"\n== " + s + L"\n"); PostMessageW(g_wnd, WM_STEP, 1 + std::clamp(pct, 0, 100), (LPARAM)new std::wstring(s)); }
-
-// ---------------------------------------------------------------- hashing (BCrypt)
-static std::string HashFile(const std::wstring& path, LPCWSTR alg) {
-    BCRYPT_ALG_HANDLE a = nullptr; BCRYPT_HASH_HANDLE h = nullptr; std::string hex;
-    if (BCryptOpenAlgorithmProvider(&a, alg, nullptr, 0) != 0) return hex;
-    DWORD len = 0, got = 0; BCryptGetProperty(a, BCRYPT_HASH_LENGTH, (PUCHAR)&len, sizeof len, &got, 0);
-    std::vector<UCHAR> out(len);
-    if (BCryptCreateHash(a, &h, nullptr, 0, nullptr, 0, 0) == 0) {
-        FILE* f = _wfopen(path.c_str(), L"rb");
-        if (f) {
-            std::vector<UCHAR> buf(1 << 20); size_t n;
-            while ((n = fread(buf.data(), 1, buf.size(), f)) > 0) BCryptHashData(h, buf.data(), (ULONG)n, 0);
-            fclose(f);
-            if (BCryptFinishHash(h, out.data(), len, 0) == 0) { char t[3]; for (UCHAR c : out) { snprintf(t, 3, "%02x", c); hex += t; } }
-        }
-        BCryptDestroyHash(h);
-    }
-    BCryptCloseAlgorithmProvider(a, 0);
-    return hex;
-}
 
 // ---------------------------------------------------------------- STFS (XBLA package) extraction (same as the launcher)
 struct Stfs {
@@ -131,61 +108,12 @@ static bool ExtractPackage(const std::wstring& pkg, const std::wstring& outDir) 
 }
 
 
-// ---------------------------------------------------------------- processes, downloads, unzip
-static DWORD RunWait(const std::wstring& cmd, const std::wstring& cwd, bool logOutput, std::wstring* out = nullptr) {
-    SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE}; HANDLE rd = nullptr, wr = nullptr;
-    CreatePipe(&rd, &wr, &sa, 0); SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
-    STARTUPINFOW si{sizeof si}; si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
-    si.hStdOutput = wr; si.hStdError = wr; si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    PROCESS_INFORMATION pi{}; std::wstring c = cmd;
-    if (!CreateProcessW(nullptr, c.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, cwd.empty() ? nullptr : cwd.c_str(), &si, &pi)) {
-        CloseHandle(rd); CloseHandle(wr); Log(L"  could not start: " + cmd + L"\n"); return (DWORD)-1;
-    }
-    CloseHandle(wr);
-    char buf[4096]; DWORD n; std::string all;
-    while (ReadFile(rd, buf, sizeof buf, &n, nullptr) && n) { all.append(buf, n); if (logOutput && all.size() > 2000) { Log(Widen(all)); all.clear(); } }
-    if (logOutput && !all.empty()) Log(Widen(all));
-    if (out) *out = Widen(all);
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    DWORD code = 1; GetExitCodeProcess(pi.hProcess, &code);
-    CloseHandle(pi.hProcess); CloseHandle(pi.hThread); CloseHandle(rd);
-    return code;
-}
-
-struct Progress : IBindStatusCallback {
-    std::wstring label; int lastPct = -1;
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** p) override { *p = nullptr; return E_NOINTERFACE; }
-    ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
-    ULONG STDMETHODCALLTYPE Release() override { return 1; }
-    HRESULT STDMETHODCALLTYPE OnStartBinding(DWORD, IBinding*) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE GetPriority(LONG*) override { return E_NOTIMPL; }
-    HRESULT STDMETHODCALLTYPE OnLowResource(DWORD) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnProgress(ULONG done, ULONG total, ULONG, LPCWSTR) override {
-        if (total) { int pct = (int)(100.0 * done / total); if (pct != lastPct) { lastPct = pct; PostMessageW(g_wnd, WM_STEP, 1 + pct, (LPARAM)new std::wstring(label + L" " + std::to_wstring(done >> 20) + L" / " + std::to_wstring(total >> 20) + L" MB")); } }
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE OnStopBinding(HRESULT, LPCWSTR) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE GetBindInfo(DWORD* f, BINDINFO*) override { *f = BINDF_GETNEWESTVERSION | BINDF_NOWRITECACHE; return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnDataAvailable(DWORD, DWORD, FORMATETC*, STGMEDIUM*) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnObjectAvailable(REFIID, IUnknown*) override { return S_OK; }
-};
-
-static bool Unzip(const std::wstring& zip, const std::wstring& dir) {   // tar.exe is part of Windows 10 / 11
-    MakeDirs(dir);
-    wchar_t sys[MAX_PATH]; GetSystemDirectoryW(sys, MAX_PATH);
-    return RunWait(L"\"" + std::wstring(sys) + L"\\tar.exe\" -xf \"" + zip + L"\" -C \"" + dir + L"\"", L"", false) == 0;
-}
-
 static bool WriteResourceTo(const std::wstring& path) {   // the runtime pack (zip) built into this program
     HRSRC r = FindResourceW(nullptr, L"PACK", RT_RCDATA); if (!r) return false;
     HGLOBAL g = LoadResource(nullptr, r); DWORD n = SizeofResource(nullptr, r); const void* p = LockResource(g);
     FILE* f = _wfopen(path.c_str(), L"wb"); if (!f) return false;
     bool ok = fwrite(p, 1, n, f) == n; fclose(f); return ok;
 }
-
-static std::string ReadText(const std::wstring& p) { std::string s; FILE* f = _wfopen(p.c_str(), L"rb"); if (!f) return s; char b[65536]; size_t n; while ((n = fread(b, 1, sizeof b, f)) > 0) s.append(b, n); fclose(f); return s; }
-static bool WriteText(const std::wstring& p, const std::string& s) { FILE* f = _wfopen(p.c_str(), L"wb"); if (!f) return false; fwrite(s.data(), 1, s.size(), f); fclose(f); return true; }
-static void Replace(std::string& s, const std::string& a, const std::string& b) { for (size_t i = 0; (i = s.find(a, i)) != std::string::npos; i += b.size()) s.replace(i, a.size(), b); }
 
 // ---------------------------------------------------------------- choices from the wizard
 struct Choices { int quality = 1; bool fullscreen = true; int lines = 0; bool cpuBook = true, extraDb = true, paFix = true, icons = true, picker = true, shortcut = true; } g_ch;
@@ -208,123 +136,57 @@ static void MakeShortcut(const std::wstring& target, const std::wstring& dir) {
 static bool Fail(const std::wstring& why) { Status(L"Stopped: " + why, 0); Log(L"\nSetup stopped: " + why + L"\nThe full log is in setup_log.txt in the install folder.\n"); return false; }
 
 static bool Install() {
-    const std::wstring dir = g_installDir, build = dir + L"\\_build", tools = dir + L"\\_tools";
-    MakeDirs(dir); MakeDirs(build); MakeDirs(tools);
+    const std::wstring dir = g_installDir;
+    bc::Mkdirs(dir);
     { std::lock_guard<std::mutex> l(g_logMx); g_logFile = _wfopen((dir + L"\\setup_log.txt").c_str(), L"wb"); }
+    bc::Sink sink;
+    sink.log = [](const std::wstring& t) { Log(t); };
+    sink.status = [](const std::wstring& t, int pct) { PostMessageW(g_wnd, WM_STEP, 1 + std::clamp(pct, 0, 100), (LPARAM)new std::wstring(t)); };
 
     // 1. the runtime pack (inside this program)
     Status(L"Unpacking Madden Arcade Unleashed files", 2);
-    std::wstring packZip = build + L"\\pack.zip";
-    if (!WriteResourceTo(packZip) || !Unzip(packZip, build + L"\\pack")) return Fail(L"could not unpack the program files");
+    bc::Mkdirs(dir + L"\\_cache");
+    std::wstring packZip = dir + L"\\_cache\\pack.zip";
+    if (!WriteResourceTo(packZip) || !bc::InstallPack(dir, packZip)) return Fail(L"could not unpack the program files");
     DeleteFileW(packZip.c_str());
-    const std::wstring pack = build + L"\\pack";
 
     // 2. your game
     Status(L"Reading your game", 5);
     std::wstring gameDir = g_game;
-    if (FileExists(g_game)) {   // a package file: unpack it once into <install>\game
+    if (bc::IsFile(g_game)) {   // a package file: unpack it once into <install>\game
         gameDir = dir + L"\\game";
-        if (!FileExists(gameDir + L"\\Arcadegame.dll") && !ExtractPackage(g_game, gameDir)) return Fail(L"could not unpack your game package");
+        if (!bc::IsFile(gameDir + L"\\Arcadegame.dll") && !ExtractPackage(g_game, gameDir)) return Fail(L"could not unpack your game package");
     }
-    std::wstring dll = gameDir + L"\\Arcadegame.dll";
-    if (!FileExists(dll)) return Fail(L"Arcadegame.dll was not found in your game files");
-    std::string sha1 = HashFile(dll, BCRYPT_SHA1_ALGORITHM);
-    if (sha1 != kDllSha1) return Fail(L"this copy of the game is a different version (Arcadegame.dll " + Widen(sha1) + L")");
+    if (!bc::IsFile(gameDir + L"\\Arcadegame.dll")) return Fail(L"Arcadegame.dll was not found in your game files");
+    std::string sha1 = bc::HashFile(gameDir + L"\\Arcadegame.dll", BCRYPT_SHA1_ALGORITHM);
+    if (sha1 != bc::kDllSha1) return Fail(L"this copy of the game is a different version (Arcadegame.dll " + bc::W(sha1) + L")");
     g_gameDir = gameDir;
 
-    // 3. build tools (free, from GitHub; checked against a known fingerprint)
-    std::wstring tc = tools + L"\\" + kToolDir;
-    if (!FileExists(tc + L"\\bin\\clang++.exe")) {
-        Status(L"Downloading build tools (about 190 MB, one time)", 8);
-        std::wstring tz = tools + L"\\toolchain.zip";
-        Progress cb; cb.label = L"Downloading build tools";
-        if (URLDownloadToFileW(nullptr, kToolUrl, tz.c_str(), 0, &cb) != S_OK) return Fail(L"could not download the build tools - check your internet connection");
-        Status(L"Checking the download", 20);
-        if (HashFile(tz, BCRYPT_SHA256_ALGORITHM) != kToolSha256) { DeleteFileW(tz.c_str()); return Fail(L"the build tools download was damaged - please run setup again"); }
-        Status(L"Unpacking build tools", 22);
-        if (!Unzip(tz, tools)) return Fail(L"could not unpack the build tools");
-        DeleteFileW(tz.c_str());
-    }
+    // 3. build tools, 4. translate + compile your game, 5. link
+    if (!bc::EnsureToolchain(dir, sink, 8, 26)) return Fail(L"could not get the build tools - check your internet connection");
+    if (!bc::RebuildGame(dir, gameDir, sink, 26, 95)) return Fail(L"building the PC version failed");
+    if (!bc::LinkGame(dir, sink, 96)) return Fail(L"linking failed");
 
-    // 4. recompile the game's code to C++ (on this PC, from your copy)
-    Status(L"Translating your game for PC", 26);
-    std::wstring gen = build + L"\\ppc";
-    MakeDirs(gen); MakeDirs(build + L"\\input");
-    if (!CopyFileW(dll.c_str(), (build + L"\\input\\Arcadegame.dll").c_str(), FALSE)) return Fail(L"could not copy Arcadegame.dll");
-    {
-        std::string cfg = ReadText(pack + L"\\recomp\\arcade.toml.in");
-        Replace(cfg, "@IMAGE_SOURCE@", "input/Arcadegame.dll"); Replace(cfg, "@OUT_DIR@", "ppc"); Replace(cfg, "@SWITCH_TABLES@", "switch_tables.toml");
-        if (cfg.empty() || !WriteText(build + L"\\arcade.toml", cfg)) return Fail(L"missing recompiler settings");
-        CopyFileW((pack + L"\\recomp\\switch_tables.toml").c_str(), (build + L"\\switch_tables.toml").c_str(), FALSE);
-    }
-    if (RunWait(L"\"" + pack + L"\\tools\\XenonRecomp.exe\" arcade.toml \"" + pack + L"\\include\\XenonUtils\\ppc_context.h\"", build, false) != 0 || !FileExists(gen + L"\\ppc_func_mapping.cpp"))
-        return Fail(L"the recompiler did not finish");
-    DeleteFileW((build + L"\\input\\Arcadegame.dll").c_str());
-
-    // 5. compile it (all CPU cores)
-    std::vector<std::wstring> srcs;
-    { WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW((gen + L"\\ppc_*.cpp").c_str(), &fd);
-      if (h != INVALID_HANDLE_VALUE) { do srcs.push_back(fd.cFileName); while (FindNextFileW(h, &fd)); FindClose(h); } }
-    if (srcs.size() < 10) return Fail(L"the recompiler produced no code");
-    std::wstring obj = build + L"\\obj"; MakeDirs(obj);
-    std::wstring cxx = L"\"" + tc + L"\\bin\\x86_64-w64-mingw32-clang++.exe\"";
-    std::wstring inc = L" -I\"" + gen + L"\" -I\"" + pack + L"\\include\\XenonUtils\" -I\"" + pack + L"\\include\\simde\"";
-    std::atomic<size_t> next{0}, done{0}; std::atomic<bool> bad{false};
-    SYSTEM_INFO si; GetSystemInfo(&si); int jobs = std::max(1, (int)si.dwNumberOfProcessors);
-    Status(L"Building the PC version (" + std::to_wstring(srcs.size()) + L" parts on " + std::to_wstring(jobs) + L" CPU threads)", 30);
-    std::vector<std::thread> th;
-    for (int j = 0; j < jobs; j++) th.emplace_back([&] {
-        for (size_t i; !bad && (i = next++) < srcs.size();) {
-            std::wstring o = obj + L"\\" + srcs[i].substr(0, srcs[i].size() - 4) + L".o";
-            std::wstring outText;
-            DWORD rc = RunWait(cxx + L" -std=c++20 -O1 -c" + inc + L" -msse4.1 -mavx2 -fno-strict-aliasing -w \"" + gen + L"\\" + srcs[i] + L"\" -o \"" + o + L"\"", build, false, &outText);
-            if (rc != 0) { bad = true; Log(L"  failed: " + srcs[i] + L"\n" + outText); }
-            size_t d = ++done;
-            PostMessageW(g_wnd, WM_STEP, 1 + 30 + (int)(65.0 * d / srcs.size()), (LPARAM)new std::wstring(L"Building the PC version: " + std::to_wstring(d) + L" / " + std::to_wstring(srcs.size())));
-        }
-    });
-    for (auto& t : th) t.join();
-    if (bad) return Fail(L"part of the build failed");
-
-    // 6. link
-    Status(L"Putting it together", 96);
-    {
-        std::string rsp;
-        for (auto& s : srcs) rsp += "\"obj/" + Narrow(s.substr(0, s.size() - 4)) + ".o\"\n";
-        std::string lib = Narrow(pack) + "\\lib";
-        for (char& c : lib) if (c == '\\') c = '/';
-        rsp += "\"" + lib + "/libmadden_host.a\"\n-L\"" + lib + "\"\n";
-        rsp += "-lglslang\n-lMachineIndependent\n-lGenericCodeGen\n-lOSDependent\n-lSPIRV\n-lglslang-default-resource-limits\n-lavcodec\n-lavutil\n-luser32\n-lgdi32\n-lole32\n-lbcrypt\n-lwinmm\n";
-        WriteText(build + L"\\link.rsp", rsp);
-    }
-    if (RunWait(cxx + L" -fuse-ld=lld -static -Wl,--stack,0x4000000 -o madden_host.exe @link.rsp", build, true) != 0 || !FileExists(build + L"\\madden_host.exe"))
-        return Fail(L"linking failed");
-    CopyFileW((build + L"\\madden_host.exe").c_str(), (dir + L"\\madden_host.exe").c_str(), FALSE);
-
-    // 7. launcher, settings, mods, shortcut
+    // 6. launcher, settings, mods, shortcut
     Status(L"Finishing up", 98);
-    CopyFileW((pack + L"\\app\\MaddenArcadeUnleashed.exe").c_str(), (dir + L"\\MaddenArcadeUnleashed.exe").c_str(), FALSE);
+    bc::ApplyPackFiles(dir, L"");
     WritePrivateProfileStringW(L"launcher", L"game", g_gameDir.c_str(), (dir + L"\\launcher.ini").c_str());
     std::wstring ini = dir + L"\\settings.ini";
     const wchar_t* q[] = {L"low", L"medium", L"high"};
     WritePrivateProfileStringW(L"settings", L"renderer", L"vulkan", ini.c_str());
     WritePrivateProfileStringW(L"settings", L"quality", q[std::clamp(g_ch.quality, 0, 2)], ini.c_str());
     WritePrivateProfileStringW(L"settings", L"fullscreen", g_ch.fullscreen ? L"1" : L"0", ini.c_str());
-    std::wstring mods = dir + L"\\mods"; MakeDirs(mods);
-    auto word = [&](const wchar_t* f, const char* w) { WriteText(mods + L"\\" + f, std::string(w) + "\n"); };
+    std::wstring mods = dir + L"\\mods"; bc::Mkdirs(mods);
+    auto word = [&](const wchar_t* f, const char* w) { bc::WriteText(mods + L"\\" + f, std::string(w) + "\n"); };
     word(L"lines.txt", g_ch.lines == 1 ? "7" : g_ch.lines == 2 ? "full" : "5");
-    word(L"roster.txt", "original");
+    if (!bc::IsFile(mods + L"\\roster.txt")) word(L"roster.txt", "original");
     word(L"cpu_playbook.txt", g_ch.cpuBook ? "on" : "off");
     word(L"extra_db.txt", g_ch.extraDb ? "ss" : "off");
     word(L"pa_fix.txt", g_ch.paFix ? "on" : "off");
     word(L"pass_icons.txt", g_ch.icons ? "all" : "game");
     if (!g_ch.picker) word(L"lineup_picker.off", "off"); else DeleteFileW((mods + L"\\lineup_picker.off").c_str());
+    bc::WriteText(dir + L"\\version.txt", bc::Trim(bc::ReadText(dir + L"\\_cache\\pack\\version.txt")) + "\n");
     if (g_ch.shortcut) MakeShortcut(dir + L"\\MaddenArcadeUnleashed.exe", dir);
-
-    // the generated code and objects came from the game: they are not kept
-    Status(L"Cleaning up", 99);
-    SHFILEOPSTRUCTW op{}; std::wstring del = build + L'\0'; op.wFunc = FO_DELETE; op.pFrom = del.c_str(); op.fFlags = FOF_NO_UI;
-    SHFileOperationW(&op);
     Status(L"Done - Madden Arcade Unleashed is installed", 100);
     return true;
 }

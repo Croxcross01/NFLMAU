@@ -20,6 +20,7 @@ static HFONT g_fTitle, g_fNav, g_fPlay, g_fH1, g_fBody, g_fBodyB, g_fSmall, g_fC
 static RECT g_card;                          // the solid card of Settings / Mods / Log
 static std::wstring g_statusText = L"Ready to play"; static COLORREF g_statusDot = RGB(46, 204, 113);
 static std::wstring g_updateMsg;
+std::wstring g_versionLabel;
 
 static const COLORREF kText = RGB(236, 242, 255), kDim = RGB(148, 163, 194), kCardC = RGB(16, 22, 38), kEditBg = RGB(10, 15, 28);
 static const uint32_t kSide = 0x0A0E18, kAccent = 0x2F8FFF, kAccentHi = 0x8EE3FF;
@@ -213,7 +214,8 @@ static void BuildFrame() {
         Txt(dc, kPageNames[i], RECT{r.left + 50, r.top, r.right, r.bottom}, g_fNav, on ? kText : RGB(178, 190, 214));
         g_hits.push_back({r, HIT_NAV + i});
     }
-    Txt(dc, L"Test build", RECT{26, h - 64, cx - 10, h - 44}, g_fSmall, RGB(120, 134, 165));
+    extern std::wstring g_versionLabel;
+    Txt(dc, g_versionLabel.empty() ? std::wstring(L"Test build") : L"Version " + g_versionLabel, RECT{26, h - 64, cx - 10, h - 44}, g_fSmall, RGB(120, 134, 165));
     Txt(dc, L"Fan project - use your own game files", RECT{26, h - 44, cx - 10, h - 24}, g_fSmall, RGB(92, 105, 135));
 
     if (g_page == PAGE_PLAY) {

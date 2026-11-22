@@ -1,0 +1,5 @@
+version=1.0.1
+pack=update/pack-1.0.1.zip
+sha256=3b4d70adcf723dfc2e7db9d50e7578423c1455d79cabf26476d0fa769fc661ac
+rebuild=0
+notes=Automatic updates; Madden Arcade Unleashed logo and icon

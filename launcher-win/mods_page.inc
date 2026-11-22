@@ -11,10 +11,10 @@
 //   launcher_bg.jpg            the launcher's background picture (your own; any JPG)
 
 static HWND g_mRoster, g_mRosterNote, g_mLines, g_mPicker, g_mSaved;
-static HWND g_mHead1, g_mHead2, g_mCpu, g_mExtra, g_mPa, g_mIcons, g_mRebuild, g_mBgNote, g_mBgPick, g_mBgClear;
+static HWND g_mAuto, g_mHead1, g_mHead2, g_mCpu, g_mExtra, g_mPa, g_mIcons, g_mRebuild, g_mBgNote, g_mBgPick, g_mBgClear;
 static std::vector<HWND> g_modsCtl;
 static std::vector<std::wstring> g_rosterSets;   // folder names, index 0 = original ("")
-enum { ID_M_ROSTER = 400, ID_M_LINES, ID_M_PICKER, ID_M_CPU, ID_M_EXTRA, ID_M_PA, ID_M_ICONS, ID_M_REBUILD, ID_M_BGPICK, ID_M_BGCLEAR };
+enum { ID_M_ROSTER = 400, ID_M_LINES, ID_M_PICKER, ID_M_CPU, ID_M_EXTRA, ID_M_PA, ID_M_ICONS, ID_M_REBUILD, ID_M_BGPICK, ID_M_BGCLEAR, ID_M_AUTO };
 
 static std::wstring ModsDir() { return g_exeDir + L"\\mods"; }
 static std::wstring ReadWord(const std::wstring& path) {
@@ -58,6 +58,7 @@ static void FillModsControls() {
     SendMessageW(g_mExtra, BM_SETCHECK, onUnless(L"\\extra_db.txt", L"off"), 0);
     SendMessageW(g_mPa, BM_SETCHECK, onUnless(L"\\pa_fix.txt", L"off"), 0);
     SendMessageW(g_mIcons, BM_SETCHECK, onUnless(L"\\pass_icons.txt", L"game"), 0);
+    SendMessageW(g_mAuto, BM_SETCHECK, GetPrivateProfileIntW(L"launcher", L"autoupdate", 1, (g_exeDir + L"\\launcher.ini").c_str()) ? BST_CHECKED : BST_UNCHECKED, 0);
     SetWindowTextW(g_mBgNote, FileExists(g_exeDir + L"\\launcher_bg.jpg") ? L"Using your picture (launcher_bg.jpg next to the launcher)." : L"No picture chosen - the Madden Arcade Unleashed backdrop is shown.");
     SetWindowTextW(g_mSaved, L"");
 }
@@ -103,6 +104,7 @@ static void CreateModsPage(HWND hw, HFONT ui) {
     g_mBgNote = mk(L"STATIC", L"", 0, 0);
     g_mBgPick = mk(L"BUTTON", L"Choose picture...", WS_TABSTOP, ID_M_BGPICK);
     g_mBgClear = mk(L"BUTTON", L"Remove", WS_TABSTOP, ID_M_BGCLEAR);
+    g_mAuto = mk(L"BUTTON", L"Install updates automatically (rosters, mods and fixes from the project)", BS_AUTOCHECKBOX | WS_TABSTOP, ID_M_AUTO);
 }
 
 static void LayoutModsPage(int x, int t, int right) {
@@ -125,7 +127,8 @@ static void LayoutModsPage(int x, int t, int right) {
     MoveWindow(g_mBgNote, x, t + 420, right - x, 20, TRUE);
     MoveWindow(g_mBgPick, x, t + 448, 170, 32, TRUE);
     MoveWindow(g_mBgClear, x + 182, t + 448, 110, 32, TRUE);
-    MoveWindow(g_mSaved, x, t + 500, right - x, 20, TRUE);
+    MoveWindow(g_mAuto, x, t + 496, 620, 24, TRUE);
+    MoveWindow(g_mSaved, x, t + 530, right - x, 20, TRUE);
 }
 
 static void ShowModsPage(bool show) {
@@ -136,6 +139,10 @@ static void ShowModsPage(bool show) {
 static bool ModsCommand(int id, int code) {
     if ((id == ID_M_ROSTER || id == ID_M_LINES) && code == CBN_SELCHANGE) { SaveMods(); return true; }
     if ((id == ID_M_PICKER || id == ID_M_CPU || id == ID_M_EXTRA || id == ID_M_PA || id == ID_M_ICONS) && code == BN_CLICKED) { SaveMods(); return true; }
+    if (id == ID_M_AUTO && code == BN_CLICKED) {
+        WritePrivateProfileStringW(L"launcher", L"autoupdate", SendMessageW(g_mAuto, BM_GETCHECK, 0, 0) == BST_CHECKED ? L"1" : L"0", (g_exeDir + L"\\launcher.ini").c_str());
+        SetWindowTextW(g_mSaved, L"Saved."); return true;
+    }
     if (id == ID_M_REBUILD && code == BN_CLICKED) {   // the game builds it again from the game files at the next Play
         DeleteFileW((ModsDir() + L"\\playcall_plays.txt").c_str());
         SetWindowTextW(g_mSaved, L"The playbook list will be rebuilt from your game files the next time you press Play.");
