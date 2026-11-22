@@ -1,5 +1,5 @@
-version=1.0.7
-pack=update/pack-1.0.7.zip
-sha256=c37f53ae0d0810a73d5218c6b794df56253c6eec933e3ca77fd5a4c79817072d
+version=1.0.8
+pack=update/pack-1.0.8.zip
+sha256=b19f6bba19d3a77ab55e05b2da24150dc9876da29d3ecce36c5cc15975ea4220
 rebuild=0
-notes=Smoother gameplay: faster hand-offs between the game and the graphics
+notes=Smooth gameplay fix: game threads really sleep while waiting

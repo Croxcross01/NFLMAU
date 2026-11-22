@@ -240,10 +240,18 @@ static uint32_t WaitObjects(const std::vector<uint32_t>& objs, bool waitAll, uin
         } else {
             for (size_t i = 0; i < objs.size(); i++) if (objs[i] && IsSignaled(objs[i])) { Acquire(objs[i]); return (uint32_t)i; }
         }
-        if (hasTimeout) { if (g_kCond.wait_until(l, dl) == std::cv_status::timeout && std::chrono::steady_clock::now() >= dl) {
-            // one last check
-            if (!waitAll) { for (size_t i = 0; i < objs.size(); i++) if (objs[i] && IsSignaled(objs[i])) { Acquire(objs[i]); return (uint32_t)i; } }
-            return STATUS_TIMEOUT; } }
+        if (hasTimeout) {
+            auto now = std::chrono::steady_clock::now();
+            if (now >= dl) {   // one last check
+                if (!waitAll) { for (size_t i = 0; i < objs.size(); i++) if (objs[i] && IsSignaled(objs[i])) { Acquire(objs[i]); return (uint32_t)i; } }
+                return STATUS_TIMEOUT;
+            }
+            // Always ask for at least a whole millisecond: some C++ libraries (libc++ on Windows) round a timed wait
+            // down to the millisecond, so a wait with less than 1 ms left returned at once and the thread spun until
+            // its deadline - dozens of game threads doing that crowded out the ones doing the work (choppy play).
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(dl - now) + std::chrono::milliseconds(1);
+            g_kCond.wait_for(l, ms);
+        }
         else g_kCond.wait_for(l, std::chrono::milliseconds(50));
     }
 }
