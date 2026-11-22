@@ -1,5 +1,5 @@
-version=1.0.2
-pack=update/pack-1.0.2.zip
-sha256=128000d9bd9e0da6e385e7ec9deeb1384b17e1e14ffc11efa98e5458670951f9
+version=1.0.3
+pack=update/pack-1.0.3.zip
+sha256=568bae0d928286e76bd3c8136185b8b05faa1a1495cd14d8ce4d72425cd0a8e1
 rebuild=0
-notes=2027 Roster (add your own ratings file on the Mods page for exact ratings)
+notes=Roster switching fix: roster sets always show on the Mods page

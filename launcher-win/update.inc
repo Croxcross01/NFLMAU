@@ -71,6 +71,7 @@ static void StartAutoUpdate() {
     { std::wstring old = std::wstring(g_exeDir) + L"\\MaddenArcadeUnleashed.exe.old"; DeleteFileW(old.c_str()); }
     g_version = bc::W(bc::Trim(bc::ReadText(g_exeDir + L"\\version.txt")));
     g_versionLabel = g_version;
+    if (!g_version.empty()) bc::CopyPackMods(g_exeDir);   // repair: the installed version's roster sets / mod data are present
     if (g_version.empty() || !AutoUpdateOn()) return;
     std::thread(UpdateThread).detach();
 }

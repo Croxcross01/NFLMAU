@@ -213,6 +213,22 @@ inline bool InstallPack(const std::wstring& install, const std::wstring& zip) {
     return MoveFileW(fresh.c_str(), cur.c_str()) != 0;
 }
 
+// The project's mod data of the installed version (pack\mods: roster sets ...) copied into mods\ - your own files kept.
+inline void CopyPackMods(const std::wstring& install) {
+    std::function<void(const std::wstring&, const std::wstring&)> copyTree = [&](const std::wstring& from, const std::wstring& to) {
+        WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW((from + L"\\*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) return;
+        Mkdirs(to);
+        do {
+            if (fd.cFileName[0] == L'.') continue;
+            std::wstring a = from + L"\\" + fd.cFileName, b = to + L"\\" + fd.cFileName;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) copyTree(a, b);
+            else if (!IsFile(b) || ReadText(a) != ReadText(b)) CopyFileW(a.c_str(), b.c_str(), FALSE);
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    };
+    copyTree(install + L"\\_cache\\pack\\mods", install + L"\\mods");
+}
 // Files the pack brings for the install: the launcher (app\) and mod data the project maintains (mods\, copied over).
 inline void ApplyPackFiles(const std::wstring& install, const std::wstring& selfExe) {
     const std::wstring pack = install + L"\\_cache\\pack";
@@ -223,18 +239,7 @@ inline void ApplyPackFiles(const std::wstring& install, const std::wstring& self
         }
         CopyFileW(app.c_str(), dst.c_str(), FALSE);
     }
-    std::function<void(const std::wstring&, const std::wstring&)> copyTree = [&](const std::wstring& from, const std::wstring& to) {
-        WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW((from + L"\\*").c_str(), &fd);
-        if (h == INVALID_HANDLE_VALUE) return;
-        Mkdirs(to);
-        do {
-            if (fd.cFileName[0] == L'.') continue;
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) copyTree(from + L"\\" + fd.cFileName, to + L"\\" + fd.cFileName);
-            else CopyFileW((from + L"\\" + fd.cFileName).c_str(), (to + L"\\" + fd.cFileName).c_str(), FALSE);
-        } while (FindNextFileW(h, &fd));
-        FindClose(h);
-    };
-    copyTree(pack + L"\\mods", install + L"\\mods");   // roster sets and other project mod data (your own files are kept)
+    CopyPackMods(install);   // roster sets and other project mod data (your own files are kept)
 }
 
 // "1.2.10" > "1.2.9"
