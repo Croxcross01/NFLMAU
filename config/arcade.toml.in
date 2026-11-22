@@ -1,0 +1,584 @@
+# XenonRecomp config for Madden NFL Arcade (XBLA), Arcadegame.dll SHA-1 b4e72f27effceee64734d365ed9bb214b0772633
+# Addresses only - no game code. setup.py fills in the @...@ paths.
+[main]
+file_path = "@IMAGE_SOURCE@"
+out_directory_path = "@OUT_DIR@"
+switch_table_file_path = "@SWITCH_TABLES@"
+
+restgprlr_14_address = 0x890ACE30
+savegprlr_14_address = 0x890ACDE0
+restfpr_14_address = 0x890AD6EC
+savefpr_14_address = 0x890AD6A0
+restvmx_14_address = 0x890AE3A8
+savevmx_14_address = 0x890AE110
+restvmx_64_address = 0x890AE43C
+savevmx_64_address = 0x890AE1A4
+
+# Functions containing jump tables that the automatic analysis cut off at the bctr (sizes derived from jump table labels + first blr after the last case)
+entry_points = [
+    0x882C916C,
+    0x882C918C,
+    0x882C919C,
+    0x882C91B8,
+    0x882C91D8,
+    0x882C9210,
+    0x882C9260,
+    0x882C9474,
+    0x882C97F4,
+    0x882C98D0,
+    0x882C9BFC,
+    0x882C9C10,
+    0x882C9D70,
+    0x8842F380,
+    0x885C47EC,
+    0x885C48B8,
+    0x885C48BC,
+    0x886ED438,
+    0x888CBDD0,
+    0x88922A94,
+    0x88922AAC,
+    0x8892EEF0,
+    0x8892EEF8,
+    0x8892EF04,
+    0x889306CC,
+    0x889307B0,
+    0x889307B8,
+    0x889307E4,
+    0x88930800,
+    0x88930810,
+    0x889BF38C,
+    0x88B65D10,
+    0x88C5CB28,
+    0x890ACD48,
+    0x890C2884,
+    0x890C3D54,
+    0x890C3DF4,
+    0x890C3E30,
+    0x890C3F5C,
+    0x890C42C8,
+    0x890C42D4,
+    0x890C4408,
+    0x890C4AD0,
+    0x890C4AD8,
+    0x890C4B74,
+    0x890E02B8,
+    0x890E0324,
+    0x89169F48,
+    0x89169FB8,
+    0x8916A150,
+    0x8916A1E8,
+    0x8916A2F8,
+    0x8916FE90,
+    0x8916FE98,
+    0x8916FED8,
+    0x8916FEDC,
+    0x8916FF28,
+    0x8916FF98,
+    0x8916FFF8,
+    0x89170140,
+    0x8917017C,
+    0x89170384,
+    0x89183A98,
+    0x89183AA0,
+    0x89183ADC,
+    0x89183B10,
+    0x89183B94,
+    0x891EFFF4,
+    0x8920C228,
+    0x8920F16C,
+    0x892B85F4,
+    0x892B85F8,
+    0x892BA79C,
+    0x892BA7D8,
+    0x892BB228,
+    0x892BB388,
+    0x892D3ED4,
+    0x892D3ED8,
+    0x893BC938,
+    0x893BC950,
+    0x893BC988,
+    0x893BC9A8,
+    0x893BC9AC,
+    0x893BC9D8,
+    0x893BCA84,
+    0x893BCA88,
+    0x893BCA8C,
+    0x893BCA90,
+    0x893BCAD4,
+    0x893BCAEC,
+    0x893BCB24,
+    0x893BCB44,
+    0x893BCB74,
+    0x893BCBF0,
+    0x893BCBF4,
+    0x893BCBF8,
+    0x893BCBFC,
+]
+functions = [
+    { address = 0x882C9020, size = 0xDB4 },
+    { address = 0x882CA7A0, size = 0x19C },
+    { address = 0x882CA940, size = 0x26C },
+    { address = 0x882CAC48, size = 0x174 },
+    { address = 0x882CB7F8, size = 0xAC },
+    { address = 0x882CB8A8, size = 0x94 },
+    { address = 0x882CB940, size = 0x9C },
+    { address = 0x882CBB20, size = 0x104 },
+    { address = 0x882CBC28, size = 0x164 },
+    { address = 0x882CBF20, size = 0x1D4 },
+    { address = 0x882CC5C8, size = 0xA8 },
+    { address = 0x882DA3B0, size = 0x170 },
+    { address = 0x882DAA50, size = 0xB8 },
+    { address = 0x882FE5C8, size = 0x104 },
+    { address = 0x88319700, size = 0x448 },
+    { address = 0x88319B98, size = 0x178 },
+    { address = 0x8831A4B0, size = 0x1AC },
+    { address = 0x8831C540, size = 0x124 },
+    { address = 0x8833C438, size = 0x60C },
+    { address = 0x8835BBB0, size = 0x31C },
+    { address = 0x8837A088, size = 0x198 },
+    { address = 0x88392EB0, size = 0xA8 },
+    { address = 0x883B6BB8, size = 0x94 },
+    { address = 0x883BCCD0, size = 0x234 },
+    { address = 0x883BCF88, size = 0x108 },
+    { address = 0x883D5F98, size = 0xA0 },
+    { address = 0x883E70E0, size = 0x6C },
+    { address = 0x883E8520, size = 0x188 },
+    { address = 0x8842F280, size = 0xF8 },
+    { address = 0x88431E28, size = 0x98 },
+    { address = 0x8843E1F8, size = 0xDC },
+    { address = 0x8843E2D8, size = 0x294 },
+    { address = 0x8843E570, size = 0x90 },
+    { address = 0x88447410, size = 0x88 },
+    { address = 0x8844D030, size = 0x78 },
+    { address = 0x8844FA58, size = 0xC4 },
+    { address = 0x8844FB20, size = 0x130 },
+    { address = 0x8844FC50, size = 0x544 },
+    { address = 0x88450198, size = 0x108 },
+    { address = 0x88451188, size = 0xA8 },
+    { address = 0x88451378, size = 0x8C },
+    { address = 0x88451650, size = 0x80 },
+    { address = 0x884A67C0, size = 0x7C },
+    { address = 0x884AE590, size = 0xB8 },
+    { address = 0x884C5D48, size = 0xAC },
+    { address = 0x884F6D88, size = 0xB0 },
+    { address = 0x884F6E40, size = 0xA8 },
+    { address = 0x884F6EE8, size = 0xB0 },
+    { address = 0x884F8120, size = 0x660 },
+    { address = 0x884F8780, size = 0x364 },
+    { address = 0x884F9340, size = 0xB0 },
+    { address = 0x884F9460, size = 0xB8 },
+    { address = 0x884F9AE8, size = 0xAA0 },
+    { address = 0x884FA588, size = 0xAB0 },
+    { address = 0x884FB6B0, size = 0xA98 },
+    { address = 0x88518400, size = 0x1D8 },
+    { address = 0x885185D8, size = 0x104 },
+    { address = 0x885186E0, size = 0x1FC },
+    { address = 0x8851D4B8, size = 0xD0 },
+    { address = 0x8851DDF0, size = 0x3C0 },
+    { address = 0x88522768, size = 0xD8 },
+    { address = 0x88522BB0, size = 0x70 },
+    { address = 0x885390D8, size = 0x114 },
+    { address = 0x885391F0, size = 0x170 },
+    { address = 0x88539590, size = 0xA0 },
+    { address = 0x8859AF70, size = 0xC0 },
+    { address = 0x885B1900, size = 0x94 },
+    { address = 0x885B4338, size = 0x118 },
+    { address = 0x885C09A0, size = 0x7C },
+    { address = 0x885C15D0, size = 0xAC },
+    { address = 0x885C16D0, size = 0x68 },
+    { address = 0x885C1738, size = 0xEC },
+    { address = 0x885C47B8, size = 0xFC },
+    { address = 0x885CB5C8, size = 0x124 },
+    { address = 0x8861CF68, size = 0x9C },
+    { address = 0x8864F128, size = 0x60 },
+    { address = 0x88689B70, size = 0xBC },
+    { address = 0x8868E7B0, size = 0x6C },
+    { address = 0x886C6010, size = 0x9C },
+    { address = 0x886E31E8, size = 0x60 },
+    { address = 0x886ED2F8, size = 0x124 },
+    { address = 0x88706F10, size = 0x1AC },
+    { address = 0x8874E1F0, size = 0xA8 },
+    { address = 0x8874E910, size = 0x74 },
+    { address = 0x887558B0, size = 0xD0 },
+    { address = 0x88776730, size = 0x100 },
+    { address = 0x8880E270, size = 0xA0 },
+    { address = 0x8880E310, size = 0x164 },
+    { address = 0x8880ECA0, size = 0xCC },
+    { address = 0x8880EE00, size = 0xCC },
+    { address = 0x8880F5A0, size = 0x184 },
+    { address = 0x8880F728, size = 0xB4 },
+    { address = 0x888100C8, size = 0x14C },
+    { address = 0x888129C8, size = 0x174 },
+    { address = 0x88812B40, size = 0x144 },
+    { address = 0x88816CE8, size = 0xD8 },
+    { address = 0x888420B0, size = 0x6C },
+    { address = 0x88849300, size = 0xB8 },
+    { address = 0x8885D1D8, size = 0x174 },
+    { address = 0x8885D528, size = 0x1B0 },
+    { address = 0x8885E538, size = 0x234 },
+    { address = 0x88860F50, size = 0xD78 },
+    { address = 0x88861CC8, size = 0x388 },
+    { address = 0x88862980, size = 0x1A8 },
+    { address = 0x8888BB38, size = 0x338 },
+    { address = 0x88898CC0, size = 0xB0 },
+    { address = 0x888ABA90, size = 0x22C },
+    { address = 0x888CBBA0, size = 0x15C },
+    { address = 0x888CBD08, size = 0xE8 },
+    { address = 0x88937A38, size = 0xA8 },
+    { address = 0x889D4C38, size = 0xC4 },
+    { address = 0x88A35040, size = 0x18C },
+    { address = 0x88AF0BA0, size = 0xE8 },
+    { address = 0x88B55C28, size = 0x154 },
+    { address = 0x88B55D80, size = 0x174 },
+    { address = 0x88B63FC0, size = 0x164 },
+    { address = 0x88B64500, size = 0x328 },
+    { address = 0x88B65C28, size = 0xD4 },
+    { address = 0x88B87360, size = 0x180 },
+    { address = 0x88B90C00, size = 0x450 },
+    { address = 0x88C57F68, size = 0x2BE0 },
+    { address = 0x88C5B3F0, size = 0x18C },
+    { address = 0x88C5B5A0, size = 0x1CBC },
+    { address = 0x88C5D278, size = 0x6D8 },
+    { address = 0x88CC03F0, size = 0x2E4 },
+    { address = 0x88CC1300, size = 0xD0 },
+    { address = 0x88CC1680, size = 0x3D0 },
+    { address = 0x88CC8950, size = 0x1E0 },
+    { address = 0x88CC8B30, size = 0x140 },
+    { address = 0x88CCD7D8, size = 0x264 },
+    { address = 0x88CD5578, size = 0x1F0 },
+    { address = 0x88CDDAF0, size = 0x74 },
+    { address = 0x88CDE860, size = 0x280 },
+    { address = 0x88CDEAE0, size = 0x2B4 },
+    { address = 0x88CDED98, size = 0x27C },
+    { address = 0x88CE5DA0, size = 0x2B0 },
+    { address = 0x88CE6050, size = 0x294 },
+    { address = 0x88CE62E8, size = 0x27C },
+    { address = 0x88CF18D8, size = 0xD4 },
+    { address = 0x88D3C848, size = 0xC8 },
+    { address = 0x88D3D1E8, size = 0xD8 },
+    { address = 0x88D58268, size = 0x1A8 },
+    { address = 0x88D99828, size = 0x2C8 },
+    { address = 0x88DE4460, size = 0x108 },
+    { address = 0x88DF8268, size = 0x218 },
+    { address = 0x88DF86D8, size = 0x130 },
+    { address = 0x88DF8810, size = 0x2F8 },
+    { address = 0x88DF8F58, size = 0x110 },
+    { address = 0x88DF9068, size = 0x100 },
+    { address = 0x88DF96C8, size = 0x108 },
+    { address = 0x88EAD750, size = 0x11C },
+    { address = 0x88ECBA00, size = 0xBC },
+    { address = 0x88ED5970, size = 0x94 },
+    { address = 0x88F58AE8, size = 0x110 },
+    { address = 0x88F59378, size = 0x18C },
+    { address = 0x89001798, size = 0x128 },
+    { address = 0x890278C8, size = 0x280 },
+    { address = 0x89056BE8, size = 0xD8 },
+    { address = 0x89057CF0, size = 0x1AC },
+    { address = 0x890EC668, size = 0x74 },
+    { address = 0x890EC6E0, size = 0x74 },
+    { address = 0x890ECDE8, size = 0x380 },
+    { address = 0x890ED6F0, size = 0x1F4 },
+    { address = 0x89113C58, size = 0x15C },
+    { address = 0x89113DB8, size = 0x120 },
+    { address = 0x89113ED8, size = 0xD8 },
+    { address = 0x8916FE90, size = 0x2F4 },
+    { address = 0x89183A98, size = 0x104 },
+    { address = 0x892523A0, size = 0x134 },
+    { address = 0x8929F300, size = 0xAC },
+    { address = 0x892CB8B8, size = 0x80 },
+    { address = 0x893BC7D0, size = 0x68 },
+    { address = 0x893BC838, size = 0x64 },
+    { address = 0x893BC8A0, size = 0x5C },
+    { address = 0x893BC900, size = 0x198 },
+    { address = 0x893BCA98, size = 0x16C }
+]
+
+# ---- mod support hooks (Madden Arcade PC) ----
+# Uniform art lookup (sub_886A95E0): the descriptor's team id (offset 8) selects the TEAM/TUNI rows the uniform
+# asset names come from. Teams added by mods (ids beyond the 32 NFL teams) are remapped to the team whose art they use.
+[[midasm_hook]]
+name = "ModArtTeamRemap"
+address = 0x886A95EC
+registers = ["r1", "r4", "r29"]
+
+# Database queries (sub_88DCBAE0: r6 = query text, r7.. = arguments). Queries on art/presentation tables with a mod
+# team's id are redirected to the team whose art it uses (identity/roster tables are never redirected).
+[[midasm_hook]]
+name = "ModDbQuery"
+address = 0x88DCBAE0
+registers = ["r1", "r6", "r7", "r8", "r9", "r10"]
+
+# Material texture binding (sub_88EBFAEC): a slot whose texture object is invalid (mod teams) is treated as empty.
+[[midasm_hook]]
+name = "ModTextureGuard"
+address = 0x88EBFBC0
+registers = ["r1", "r3", "r24", "r30"]
+jump_address_on_true = 0x88EBFBAC
+
+# Match team setup (sub_88BFE630): log the error code when it stops early.
+[[midasm_hook]]
+name = "ModTeamSetupFail"
+address = 0x88BFEC30
+registers = ["r31"]
+
+[[midasm_hook]]
+name = "ModTeamRenumber"
+address = 0x88BEB850
+registers = ["r3", "r4", "r5", "r6", "r7"]
+
+# Reference-counted release: skip handles that do not point at a game object (mid-game crash fix).
+[[midasm_hook]]
+name = "GuardRelease"
+address = 0x88310450
+registers = ["r1", "r3"]
+return_on_true = true
+
+[[midasm_hook]]
+name = "GuardReleaseInline"
+address = 0x886B277C
+registers = ["r1", "r11", "r26", "r30", "r31"]
+jump_address_on_true = 0x886B27B8
+
+# Match setup (sub_882E30B0): log both team ids and roster file names.
+[[midasm_hook]]
+name = "ModMatchTeams"
+address = 0x882E31BC
+registers = ["r1", "r31"]
+
+# Resource name hash (debug: log looked-up resource names).
+[[midasm_hook]]
+name = "ModNameHash"
+address = 0x89027BC0
+registers = ["r3"]
+
+# Visual component set-model (invisible players): a non-object model is stored as none and logged.
+[[midasm_hook]]
+name = "GuardSetModel"
+address = 0x88394060
+registers = ["r1", "r3", "r4"]
+
+[[midasm_hook]]
+name = "ModTeamModels"
+address = 0x886BAE98
+registers = ["r4"]
+
+[[midasm_hook]]
+name = "ModModelLookupFail"
+address = 0x886B2EA8
+registers = ["r8", "r31"]
+
+[[midasm_hook]]
+name = "ModPlayerInfo"
+address = 0x886B2E48
+registers = ["r4"]
+
+[[midasm_hook]]
+name = "ModPlayerLoad"
+address = 0x886ACD30
+registers = ["r1", "r3", "r4", "r5"]
+
+[[midasm_hook]]
+name = "ModPlaybookState"
+address = 0x88535578
+registers = ["r3", "r4", "r5"]
+
+# After the match depth charts are copied (sub_88BF51D8): build depth charts for match teams that have none.
+[[midasm_hook]]
+name = "ModBuildDepthCharts"
+address = 0x88BF5400
+
+# Own uniforms for mod teams (teams.ini "100=13,HOF"): the uniform prefix (TEAM.TPFN) is replaced right after each read.
+[[midasm_hook]]
+name = "ModPrefixUniform"
+address = 0x886A965C
+registers = ["r31"]
+
+[[midasm_hook]]
+name = "ModPrefixMixList"
+address = 0x886A9D1C
+registers = ["r1", "r30"]
+
+[[midasm_hook]]
+name = "ModPrefixSetup"
+address = 0x886BE48C
+registers = ["r29", "r30"]
+
+# Debug: swappable UI images (library, item) as they are drawn
+[[midasm_hook]]
+name = "ModSwapImage"
+address = 0x88D6CD50
+registers = ["r3"]
+
+# Lineup picker: while its window is open, the loading-screen UI update (sub_88DDF730) is paused (the game's UI touched
+# freed menu objects when the match setup was held up for a long time on the 2nd match).
+[[midasm_hook]]
+name = "ModUiUpdateGate"
+address = 0x88DDF74C
+jump_address_on_true = 0x88DDF838
+
+# 7-on-7 research: the game-changer roll result (r30, written to the power-up slot right here). Logged, and can be
+# forced from mods/force_powerup.txt to find which value is Entourage ("sends the rest of your linemen into the game").
+[[midasm_hook]]
+name = "ModPowerupRoll"
+address = 0x88717DE4
+registers = ["r29", "r30"]
+
+# Lines mode (mods/lines.txt = 7 or full): Entourage's "bring in the linemen" step (sub_8871B230) is run once every
+# down without the power-up. Trigger: the team's power-up slot reads 9 (Entourage) for that one pass; restore: the
+# real power-up is put back after the game marks the slot used; filter: in 7-on-7 only LG/RG (offense) and LE/RE
+# (defense) are brought in.
+[[midasm_hook]]
+name = "ModLinesTrigger"
+address = 0x8871B47C
+registers = ["r11", "r27"]
+
+[[midasm_hook]]
+name = "ModLinesRestore"
+address = 0x8871B4AC
+registers = ["r9", "r27"]
+
+[[midasm_hook]]
+name = "ModLinesFilter"
+address = 0x8871B52C
+registers = ["r3", "r11", "r15", "r27", "r30", "r31"]
+jump_address_on_true = 0x8871B550
+
+# Lines mode: a play pick rebuilds the formation (dropping the extra linemen): re-run the linemen step after each pick.
+[[midasm_hook]]
+name = "ModLinesOffensePicked"
+address = 0x8859017C
+
+[[midasm_hook]]
+name = "ModLinesDefensePicked"
+address = 0x885901F4
+
+# per-frame tick of the game-changer update (sub_8871B230): schedules the re-runs after a pick
+[[midasm_hook]]
+name = "ModLinesTick"
+address = 0x8871B26C
+
+# Lines mode filter for the defense path of the same step (the defense jumps past ModLinesFilter to here).
+[[midasm_hook]]
+name = "ModLinesFilterDefense"
+address = 0x8871B53C
+registers = ["r3", "r11", "r15", "r27", "r30", "r31"]
+jump_address_on_true = 0x8871B550
+
+# Lines mode: the game's "can this power-up be used now" check (sub_887175C8) sometimes refuses the step for a team
+# holding another power-up; for the step lines mode asked for, its answer is ignored.
+[[midasm_hook]]
+name = "ModLinesCanUse"
+address = 0x8871B490
+registers = ["r3", "r27"]
+
+
+# Full play-call screen: the two "set this team's play by formation / play name" calls (sub_88834460) in the step that
+# sets each down's plays (sub_8871BFD0): offense first, then defense. r5 / r6 = formation / play name.
+[[midasm_hook]]
+name = "PlayCallOffense"
+address = 0x8871C1F4
+registers = ["r4", "r5", "r6"]
+
+[[midasm_hook]]
+name = "PlayCallDefense"
+address = 0x8871C23C
+registers = ["r4", "r5", "r6"]
+
+# Full playbook: who controls the offense / defense this down (r3 = user index, 255 = CPU; r26 = play-call state;
+# the defense is only asked when the offense is the CPU), and the per-frame check of the two "called" flags.
+[[midasm_hook]]
+name = "PlayCallWhoOffense"
+address = 0x8871C064
+registers = ["r3", "r26"]
+
+[[midasm_hook]]
+name = "PlayCallWhoDefense"
+address = 0x8871C094
+registers = ["r3", "r26"]
+
+[[midasm_hook]]
+name = "PlayCallCommit"
+address = 0x8871C16C
+registers = ["r26"]
+
+# Pass study (temporary): receiver for a pass icon (r4 = icon index 0..4).
+[[midasm_hook]]
+name = "PassIconLog"
+address = 0x88535D70
+registers = ["r1", "r4"]
+
+[[midasm_hook]]
+name = "PassFn_8844C7D8"
+address = 0x8844C7D8
+registers = ["r1", "r3", "r4"]
+
+[[midasm_hook]]
+name = "PassFn_8844C840"
+address = 0x8844C840
+registers = ["r1", "r3", "r4"]
+
+[[midasm_hook]]
+name = "PassFn_88456C98"
+address = 0x88456C98
+registers = ["r1", "r3", "r4"]
+
+[[midasm_hook]]
+name = "PassFn_88457AE8"
+address = 0x88457AE8
+registers = ["r1", "r3", "r4"]
+
+[[midasm_hook]]
+name = "PassFn_884738A0"
+address = 0x884738A0
+registers = ["r1", "r3", "r4"]
+
+[[midasm_hook]]
+name = "PassFn_88536EE0"
+address = 0x88536EE0
+registers = ["r1", "r3", "r4"]
+
+[[midasm_hook]]
+name = "PassIconSlot"
+address = 0x88496134
+registers = ["r29", "r31"]
+
+[[midasm_hook]]
+name = "PassIconButton"
+address = 0x88496180
+registers = ["r3", "r30", "r31"]
+
+# Pass icons: the "is this icon slot hidden" answer in the icon drawer (r3), forced to shown; r30 = icon slot.
+[[midasm_hook]]
+name = "PassIconShown"
+address = 0x884961A8
+registers = ["r3", "r30"]
+
+# Pass icons study: picture chosen for an icon slot (r3 after sub_8844C850), r30 = icon slot.
+[[midasm_hook]]
+name = "PassIconGlyph"
+address = 0x88496200
+registers = ["r3", "r30"]
+
+# Pass icons study: raw button bound to an icon slot's pass action (r3), r29 = slot.
+[[midasm_hook]]
+name = "PassIconCode"
+address = 0x8844C8AC
+registers = ["r3", "r29"]
+
+# Pass icons per play: where the icon drawer reads a slot's kept picture (r28 = drawer, r30 = slot).
+[[midasm_hook]]
+name = "PassIconCache"
+address = 0x884961C8
+registers = ["r28", "r30"]
+
+# Play action for the user: after each play step is fetched from the playbook (code at r1+96, values +98/+99/+100).
+[[midasm_hook]]
+name = "PaStepFetched"
+address = 0x884479B4
+registers = ["r1"]
+
+# Play action for the user: the play call's own step loader (sub_88519F48), after each step row is fetched.
+[[midasm_hook]]
+name = "PaStepFetched2"
+address = 0x8851A158
+registers = ["r1"]

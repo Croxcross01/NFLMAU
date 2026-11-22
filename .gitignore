@@ -1,0 +1,20 @@
+# Everything derived from the game stays local - never commit it
+build/
+*.img
+*.ast
+*.xex
+*.dll
+ppc/
+ppc_recomp.*.cpp
+ppc_func_mapping.cpp
+ppc_recomp_shared.h
+host/src/stubs_gen.cpp
+launcher.json
+save/
+game/
+__pycache__/
+*.pyc
+
+# your own launcher background picture (stays on your PC)
+launcher_bg.jpg
+launcher_bg.jpeg
