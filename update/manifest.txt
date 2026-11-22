@@ -1,5 +1,5 @@
-version=1.0.3
-pack=update/pack-1.0.3.zip
-sha256=568bae0d928286e76bd3c8136185b8b05faa1a1495cd14d8ce4d72425cd0a8e1
+version=1.0.4
+pack=update/pack-1.0.4.zip
+sha256=aa1ca69b879a9be24510f1cd0d80c829cff291ce54d121f8dfdd79fc306b98e1
 rebuild=0
-notes=Roster switching fix: roster sets always show on the Mods page
+notes=Lineup window fix; 7-on-7 alignments built from your game

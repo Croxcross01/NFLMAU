@@ -326,7 +326,8 @@ void ModDbQuery(PPCRegister& r1, PPCRegister& r6, PPCRegister& r7, PPCRegister& 
         std::lock_guard<std::mutex> l(g_loadLock);
         if (!g_loaded) { g_loaded = true; LoadTeamMap(); }
     }
-    if (g_artMap.empty()) return;
+    // (the match teams for the lineup window and the two-player sides are read below with or without mod teams;
+    // only the mod-team remapping further down needs mods/teams.ini)
     uint32_t q = r6.u32;
     if (q < 0x80000000u || q >= 0xE0000000u) return;   // query strings live in the image / heap
     // read the query text (bounded) and find argument markers
@@ -398,6 +399,7 @@ void ModDbQuery(PPCRegister& r1, PPCRegister& r6, PPCRegister& r7, PPCRegister& 
         argSet(1, look);
         return;
     }
+    if (g_artMap.empty()) return;   // no mod teams: nothing to remap
     // any argument holding a mod team id?
     bool hit = false;
     for (size_t i = 0; i < nargs; i++) if (g_artMap.count(argGet(i))) hit = true;
@@ -1282,6 +1284,7 @@ bool GuestReadable(uint32_t a, uint32_t len) {
     (void)a; (void)len; return true;
 #endif
 }
+bool GenerateLines7(const std::string& gameDir, const std::string& outPath);
 namespace {
 struct AlignRegion { uint32_t off; std::vector<uint8_t> orig, alt; };
 struct AlignBlock { std::vector<uint8_t> anchor; std::vector<AlignRegion> regs; std::vector<uint32_t> found; };
@@ -1293,7 +1296,14 @@ int g_alignScans = 0;
 void LoadAlign() {
     g_alignLoaded = true;
     const char* dir = getenv("MADDEN_MODS_ROOT");
-    FILE* f = fopen((std::string(dir ? dir : "mods") + "/lines7.bin").c_str(), "rb");
+    std::string path = std::string(dir ? dir : "mods") + "/lines7.bin";
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) {   // first time: build it from your own game files
+        const char* gd = getenv("MADDEN_GAME_DIR");
+        bool made = GenerateLines7(gd ? gd : "game", path);
+        fprintf(stderr, "[mods] lines: %s mods/lines7.bin from your game's playbooks\n", made ? "built" : "could not build");
+        f = fopen(path.c_str(), "rb");
+    }
     if (!f) { fprintf(stderr, "[mods] lines: no mods/lines7.bin - 7-on-7 uses the normal alignments\n"); return; }
     auto u32 = [&](uint32_t& v) { return fread(&v, 4, 1, f) == 1; };
     uint32_t nb = 0;
