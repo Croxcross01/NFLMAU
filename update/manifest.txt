@@ -1,5 +1,5 @@
-version=1.0.11
-pack=update/pack-1.0.11.zip
-sha256=8d96165cc63f6cbd104d001d51fb92b2545aa2f3a378097f831f85a902e117b6
+version=1.0.12
+pack=update/pack-1.0.12.zip
+sha256=06f459503889657f0cdc39111f6e36917a629f4e7a61015ffe3fb3eeb23c8445
 rebuild=0
-notes=Players not in the play stay out of sight
+notes=Menus: one d-pad tap now moves one item (no more skipping)

@@ -157,6 +157,26 @@ bool ReadPad(uint32_t user, Pad& p, uint32_t& packet) {
         if (!mute && user < 4 && ((g_padInjectPorts.load() >> user) & 1) && g_padInject.load() && (int32_t)(g_padInjectUntil.load() - GetTickCount()) > 0) p.buttons |= (uint16_t)g_padInject.load();
 #endif
     }
+    // Menus (outside a match): one tap of the d-pad or stick moves one item. A press is shown to the game for its
+    // first 90 ms, then held back until 400 ms (so the game's own repeat cannot fire on a normal tap), then passed
+    // through so holding still scrolls. A release shorter than 30 ms (switch bounce) is ignored.
+    if (user < 4 && GameStateWord() >= 16) {   // match states are small numbers; menus read as none
+        using namespace std::chrono;
+        int64_t now = duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+        struct Dir { int64_t down = -1, up = -1; };
+        static Dir dirs[4][4];   // port, up/down/left/right
+        static const uint16_t bits[4] = { DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT };
+        bool held[4] = { (p.buttons & DPAD_UP) || p.ly > 16000, (p.buttons & DPAD_DOWN) || p.ly < -16000,
+                         (p.buttons & DPAD_LEFT) || p.lx < -16000, (p.buttons & DPAD_RIGHT) || p.lx > 16000 };
+        for (int d = 0; d < 4; d++) {
+            Dir& s = dirs[user][d];
+            if (held[d]) { if (s.down < 0) s.down = now; s.up = -1; }
+            else if (s.down >= 0) { if (s.up < 0) s.up = now; if (now - s.up >= 30) s.down = -1; else held[d] = true; }
+            bool show = held[d] && s.down >= 0 && (now - s.down < 90 || now - s.down >= 400);
+            if (show) p.buttons |= bits[d]; else p.buttons &= ~bits[d];
+            if (!show) { if (d < 2 && (d == 0 ? p.ly > 0 : p.ly < 0)) p.ly = 0; if (d >= 2 && (d == 2 ? p.lx < 0 : p.lx > 0)) p.lx = 0; }
+        }
+    }
     {   // pass study (temporary): buttons pressed during a play
         static uint16_t prevB[4];
         if (p.buttons != prevB[user & 3]) {
