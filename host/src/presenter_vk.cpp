@@ -23,6 +23,9 @@ void DumpGuestThreads();
 #include <thread>
 #include <vector>
 #include <string>
+#include <string>
+void PerfName(const std::string& name);
+void PerfStart();
 #ifndef _WIN32
 #  include <SDL2/SDL.h>
 #  include <SDL2/SDL_vulkan.h>
@@ -422,6 +425,7 @@ struct VkPresenter {
 };
 
 void RenderThread() {
+    { PerfName("present"); }
     VkPresenter vp;
     if (!vp.Init()) {
         fprintf(stderr, "[video] no window - the game keeps running headless\n"); g_running = false;

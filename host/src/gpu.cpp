@@ -17,6 +17,9 @@
 #include <vector>
 #include <map>
 #include <mutex>
+#include <string>
+void PerfName(const std::string& name);
+void PerfStart();
 
 #define IMP(n) PPC_FUNC(__imp__##n)
 #define TRACE(n) HostTrace("__imp__" #n, ctx)
@@ -359,6 +362,7 @@ void PublishReadPointer() {
 }
 
 void CommandProcessorThread() {
+    { PerfName("gpu commands"); }
     KInitHostGuestThread(g_cpCaller.ctx, 0x40000); g_cpCaller.ready = true;
     fprintf(stderr, "[gpu] command processor running (ring %u dwords at phys %08X)\n", g_ringDwords, g_ringPhys);
     uint32_t idle = 0;
@@ -388,6 +392,7 @@ static int DisplayHz() {
 }
 #endif
 void VblankThread() {
+    { PerfName("vblank"); }
     GuestCaller caller;
     auto tick = [&] { ++g_counter; DispatchInterrupt(caller, 0, 2); };
 #ifdef _WIN32

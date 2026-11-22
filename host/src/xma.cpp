@@ -21,6 +21,9 @@ extern "C" {
 #include <condition_variable>
 #include <set>
 #include <thread>
+#include <string>
+void PerfName(const std::string& name);
+void PerfStart();
 
 #define IMP(n) PPC_FUNC(__imp__##n)
 #define TRACE(n) HostTrace("__imp__" #n, ctx)
@@ -404,6 +407,7 @@ void Advance(uint32_t addr, double seconds) {
 }
 
 void Worker() {
+    { PerfName("xma decode"); }
     auto last = std::chrono::steady_clock::now();
     for (;;) {
         std::unique_lock<std::mutex> l(g_xmaLock);

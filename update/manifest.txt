@@ -1,5 +1,5 @@
-version=1.0.5
-pack=update/pack-1.0.5.zip
-sha256=67aad8dd430953e7bc5841faf3b37a851937c75e59f317ac7d9f2d448527f1ee
+version=1.0.6
+pack=update/pack-1.0.6.zip
+sha256=30a6cee8f22d5c80b6374401fa5b8d075eb7f8a7c97f0fc758ce487a314be65e
 rebuild=0
-notes=Smoother frame pacing: game timing locked to your display
+notes=Performance measurements in the log

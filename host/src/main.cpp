@@ -17,6 +17,9 @@ void KInitMainThread(PPCContext& ctx);
 void KInitKernelVariables();
 void PresenterStart();
 #include "settings.h"
+#include <string>
+void PerfName(const std::string& name);
+void PerfStart();
 #ifdef _WIN32
 extern "C" __declspec(dllimport) unsigned int __stdcall timeBeginPeriod(unsigned int);
 #endif
@@ -232,6 +235,7 @@ int main(int argc, char** argv) {
     // 1 ms timer resolution: Windows otherwise rounds every short sleep/wait up to ~15.6 ms, which stretched the
     // game's own short waits (audio thread, vblank pacing, kernel timers) and made sound fall behind
     timeBeginPeriod(1);
+    { PerfName("game main"); PerfStart(); }
 #endif
     std::string gameDir = "game", imgPath, settingsPath = "settings.ini";
     for (int i = 1; i < argc; i++) {

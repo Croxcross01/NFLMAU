@@ -10,6 +10,9 @@
 #include <atomic>
 #include <chrono>
 #include <ctime>
+#include <string>
+void PerfName(const std::string& name);
+void PerfStart();
 
 #define IMP(n) PPC_FUNC(__imp__##n)
 #define TRACE(n) HostTrace("__imp__" #n, ctx)
@@ -123,6 +126,7 @@ void KInitHostGuestThread(PPCContext& ctx, uint32_t stackSize) {
 }
 
 static void ThreadMain(HostThread* t) {
+    { char nm[48]; snprintf(nm, sizeof nm, "game thread %u (%08X)", t->id, t->start); PerfName(nm); }
     {   // wait while suspended
         std::unique_lock<std::mutex> l(g_kLock);
         g_kCond.wait(l, [t] { return !t->suspended; });

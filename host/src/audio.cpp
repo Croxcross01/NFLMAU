@@ -7,6 +7,9 @@
 #include <mutex>
 #include <thread>
 #include <condition_variable>
+#include <string>
+void PerfName(const std::string& name);
+void PerfStart();
 
 #define IMP(n) PPC_FUNC(__imp__##n)
 #define TRACE(n) HostTrace("__imp__" #n, ctx)
@@ -32,6 +35,7 @@ struct GuestCaller {
 // Worker: like the console's audio driver thread, call a client's render callback whenever it has room to queue
 // another frame.
 void AudioWorker() {
+    { PerfName("audio"); }
     GuestCaller caller;
     for (;;) {
         int idx = -1;
