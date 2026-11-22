@@ -3,6 +3,7 @@
 // This is the "null GPU" stage: every packet is executed for its side effects (register writes, memory
 // writes, fences, waits, interrupts, swaps) but draws are not rendered yet.
 #include "kernel.h"
+#include "precise_wait.h"
 #include "gpu_vk.h"
 #include <atomic>
 #include <cmath>
@@ -236,6 +237,7 @@ bool ExecuteType3(Reader& r, uint32_t packet) {
     case PM4_WAIT_REG_MEM: {
         uint32_t info = r.Read(), addr = r.Read(), ref = r.Read(), mask = r.Read(), wait = r.Read();
         bool mem = info & 0x10;
+        auto waitStart = std::chrono::steady_clock::now();
         for (int spins = 0;; spins++) {
             uint32_t v;
             if (mem) v = GpuLoad(addr);
@@ -245,7 +247,8 @@ bool ExecuteType3(Reader& r, uint32_t packet) {
             }
             if (Compare(info, v & mask, ref)) break;
             if (spins == 20000) fprintf(stderr, "[gpu] WAIT_REG_MEM still waiting on %s %08X (value %08X, ref %08X, mask %08X)\n", mem ? "memory" : "register", addr, v, ref, mask);
-            if (wait >= 0x100) std::this_thread::sleep_for(std::chrono::milliseconds(wait / 0x100)); else std::this_thread::yield();
+            // react within ~50 us: spin briefly, then short precise naps (never whole-millisecond sleeps)
+            if (std::chrono::steady_clock::now() - waitStart < std::chrono::microseconds(300)) std::this_thread::yield(); else PreciseWait(50);
         }
         break; }
     case PM4_REG_RMW: {
@@ -365,15 +368,15 @@ void CommandProcessorThread() {
     { PerfName("gpu commands"); }
     KInitHostGuestThread(g_cpCaller.ctx, 0x40000); g_cpCaller.ready = true;
     fprintf(stderr, "[gpu] command processor running (ring %u dwords at phys %08X)\n", g_ringDwords, g_ringPhys);
-    uint32_t idle = 0;
+    auto lastWork = std::chrono::steady_clock::now();
     for (;;) {
         uint32_t wptr = __atomic_load_n((uint32_t*)(g_base + kGpuMmio + REG_CP_RB_WPTR * 4), __ATOMIC_ACQUIRE);
         wptr = __builtin_bswap32(wptr) % g_ringDwords;
-        if (wptr == g_readIndex) {
-            if (++idle > 2000) std::this_thread::sleep_for(std::chrono::microseconds(500)); else std::this_thread::yield();
+        if (wptr == g_readIndex) {   // no new commands: stay alert for 1 ms, then nap in 50 us steps
+            if (std::chrono::steady_clock::now() - lastWork < std::chrono::milliseconds(1)) std::this_thread::yield(); else PreciseWait(50);
             continue;
         }
-        idle = 0;
+        lastWork = std::chrono::steady_clock::now();
         Reader r{GuestFromPhysical(g_ringPhys), g_ringDwords, g_readIndex, wptr};
         while (r.pos != r.end) if (!ExecutePacket(r)) { fprintf(stderr, "[gpu] bad packet in ring at %u\n", r.pos); r.pos = r.end; }
         g_readIndex = wptr;

@@ -1,5 +1,5 @@
-version=1.0.6
-pack=update/pack-1.0.6.zip
-sha256=30a6cee8f22d5c80b6374401fa5b8d075eb7f8a7c97f0fc758ce487a314be65e
+version=1.0.7
+pack=update/pack-1.0.7.zip
+sha256=c37f53ae0d0810a73d5218c6b794df56253c6eec933e3ca77fd5a4c79817072d
 rebuild=0
-notes=Performance measurements in the log
+notes=Smoother gameplay: faster hand-offs between the game and the graphics

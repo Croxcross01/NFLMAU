@@ -1,3 +1,4 @@
+#include "precise_wait.h"
 #include <condition_variable>
 #include <algorithm>
 #include <vector>
@@ -266,7 +267,10 @@ IMP(KeWaitForMultipleObjects) {
 IMP(KeDelayExecutionThread) {
     TRACE(KeDelayExecutionThread);
     int64_t v = ctx.r5.u32 ? (int64_t)ReadU64(ctx.r5.u32) : 0;
-    if (v < 0) std::this_thread::sleep_for(std::chrono::nanoseconds(-v * 100)); else std::this_thread::yield();
+    if (v < 0) {   // short sleeps (game timing loops) wait precisely; long ones sleep normally
+        int64_t us = -v / 10;
+        if (us < 4000) PreciseWait(us); else std::this_thread::sleep_for(std::chrono::nanoseconds(-v * 100));
+    } else std::this_thread::yield();
     ctx.r3.u64 = STATUS_SUCCESS;
 }
 
