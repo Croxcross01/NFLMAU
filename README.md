@@ -9,6 +9,16 @@ host runtime that stands in for the Xbox 360 system software.
 > **Status: playable.** Full matches run natively on Windows with a Vulkan renderer, XMA audio, controllers and
 > two-player local play, plus a set of gameplay mods (below). Expect rough edges - please report what you find.
 
+## Download and play
+
+1. Download **`MaddenArcadeUnleashed_Setup.exe`** from the [Releases page](../../releases/latest).
+2. Run it, pick your own copy of the game (the XBLA package file or an extracted folder) and your settings.
+3. Setup downloads the free build tools (about 190 MB, once), turns *your* copy of the game into the PC version
+   on your PC (roughly 5-15 minutes), and opens the launcher. Press **PLAY**.
+
+Needs Windows 10 or 11, a graphics card with Vulkan, and your own copy of Madden NFL Arcade (XBLA). The download
+contains no game code or game data - only this project's own code and open-source parts.
+
 ## Features
 
 **PC port**

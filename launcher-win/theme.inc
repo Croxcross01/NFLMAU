@@ -48,6 +48,20 @@ static void LoadBackgroundPicture() {
         if (st) st->Release(); else GlobalFree(mem);
         if (g_bgPic) return;
     }
+    // no picture of your own: the Madden Arcade Unleashed backdrop built into the launcher
+    if (HRSRC r = FindResourceW(nullptr, L"DEFAULTBG", RT_RCDATA)) {
+        DWORD size = SizeofResource(nullptr, r); const void* src = LockResource(LoadResource(nullptr, r));
+        HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, size);
+        if (mem && src) { memcpy(GlobalLock(mem), src, size); GlobalUnlock(mem); }
+        IStream* st = nullptr; IPicture* pic = nullptr;
+        if (mem && CreateStreamOnHGlobal(mem, TRUE, &st) == S_OK && OleLoadPicture(st, (LONG)size, FALSE, IID_IPicture, (void**)&pic) == S_OK) {
+            OLE_HANDLE h = 0; pic->get_Handle(&h);
+            g_bgPic = (HBITMAP)CopyImage((HBITMAP)(UINT_PTR)h, IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+            BITMAP bm{}; GetObjectW(g_bgPic, sizeof bm, &bm); g_picW = bm.bmWidth; g_picH = bm.bmHeight;
+            pic->Release();
+        }
+        if (st) st->Release(); else if (mem) GlobalFree(mem);
+    }
 }
 
 // ---- pixel helpers (on g_px) ----

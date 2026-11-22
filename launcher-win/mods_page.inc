@@ -58,7 +58,7 @@ static void FillModsControls() {
     SendMessageW(g_mExtra, BM_SETCHECK, onUnless(L"\\extra_db.txt", L"off"), 0);
     SendMessageW(g_mPa, BM_SETCHECK, onUnless(L"\\pa_fix.txt", L"off"), 0);
     SendMessageW(g_mIcons, BM_SETCHECK, onUnless(L"\\pass_icons.txt", L"game"), 0);
-    SetWindowTextW(g_mBgNote, FileExists(g_exeDir + L"\\launcher_bg.jpg") ? L"Using your picture (launcher_bg.jpg next to the launcher)." : L"No picture chosen - a plain backdrop is shown.");
+    SetWindowTextW(g_mBgNote, FileExists(g_exeDir + L"\\launcher_bg.jpg") ? L"Using your picture (launcher_bg.jpg next to the launcher)." : L"No picture chosen - the Madden Arcade Unleashed backdrop is shown.");
     SetWindowTextW(g_mSaved, L"");
 }
 
