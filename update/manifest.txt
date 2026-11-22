@@ -1,5 +1,5 @@
-version=1.0.10
-pack=update/pack-1.0.10.zip
-sha256=07d3805b3af5a7d28e0870e814e03884178dc565e41a3ea7d9a347768c4bf200
+version=1.0.11
+pack=update/pack-1.0.11.zip
+sha256=8d96165cc63f6cbd104d001d51fb92b2545aa2f3a378097f831f85a902e117b6
 rebuild=0
-notes=Diagnostics for players standing in the end zone
+notes=Players not in the play stay out of sight

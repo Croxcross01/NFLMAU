@@ -1,3 +1,4 @@
+#include <cmath>
 #include <filesystem>
 #include <string>
 std::string FsGameDir();
@@ -1609,6 +1610,8 @@ void PlayCallCommit(PPCRegister& r26) { g_pcObj = r26.u32; }
 PPC_EXTERN_FUNC(sub_8850E318);
 PPC_EXTERN_FUNC(sub_8850F680);
 void PaFlags(uint32_t users, uint32_t qb, uint32_t rb, int uidx);
+static std::string g_offForm;   // this down's offense formation (playbook name)
+static std::string g_offPlay;   // and play name
 void PaScan();
 void PcTick() {
     PaScan();
@@ -1636,6 +1639,33 @@ void PcTick() {
         int64_t ticks = std::chrono::steady_clock::now().time_since_epoch().count() - t0 - g_pickerTime.exchange(0);
         double sec = (double)ticks * std::chrono::steady_clock::period::num / std::chrono::steady_clock::period::den;
         fprintf(stderr, "[perf] match loaded in %.1f s (team select to the first play call, lineup window not counted)\n", sec);
+    }
+    {   // Players not in the play are parked in a row just past the end zone (y = +-33 offense, +-36 defense). Normally
+        // they are not drawn, but after some play calls a few stayed visible standing in the end zone. Before the snap
+        // they are moved well behind it (out of every camera view); the game places anyone it brings in at his spot.
+        uint32_t plist = ReadU32(0x894C07D4);
+        static uint32_t loggedPlay = 0xFFFFFFFFu; extern uint32_t g_iconPlayId;
+        if (obj(plist))
+            for (uint32_t team = 0; team < 2; team++)
+                for (uint32_t i = 0; i < 11; i++) {
+                    PPCContext d = *live; d.r1.u64 = (live->r1.u32 - 0x1000) & ~15u; d.r3.u64 = plist; d.r4.u64 = i; d.r5.u64 = team;
+                    sub_8850F680(d, g_base);
+                    uint32_t pl = d.r3.u32; if (!obj(pl)) continue;
+                    uint32_t fl = ReadU32(pl + 260);
+                    if (fl & 0x800) continue;   // on the field
+                    auto rf = [&](uint32_t o2) { uint32_t u = ReadU32(pl + o2); float f; memcpy(&f, &u, 4); return f; };
+                    auto wf = [&](uint32_t o2, float f) { uint32_t u; memcpy(&u, &f, 4); WriteU32(pl + o2, u); };
+                    float y = rf(0x58);
+                    if (fl != 0x4C && loggedPlay != g_iconPlayId) {
+                        loggedPlay = g_iconPlayId; uint32_t q = ReadU32(pl + 932);
+                        fprintf(stderr, "[mods] parked player with flags %08X (team %u role %d, y %.1f) on %s - %s\n", fl, team,
+                                obj(q) ? (int)ReadU32(q + 136) : -1, y, g_offForm.c_str(), g_offPlay.c_str());
+                    }
+                    if (std::fabs(y) > 25.0f && std::fabs(y) < 50.0f) {
+                        float ny = y > 0 ? 80.0f : -80.0f;
+                        wf(0x58, ny); wf(0x128, ny); wf(0xA4, -ny);
+                    }
+                }
     }
     {   // diagnostics: a few seconds into the first three play calls, every player's role, flags, state and raw record
         static int snaps = 0, held = 0; static uint32_t lastSeq = 0xFFFFFFFFu;
@@ -1685,8 +1715,6 @@ static bool CpuBook() {
     }
     return g_cpuBook == 1;
 }
-static std::string g_offForm;   // this down's offense formation (playbook name)
-static std::string g_offPlay;   // and play name
 static void CpuPick(int side, bool wantPass, PPCRegister& r5, PPCRegister& r6) {
     std::vector<int> c;
     for (int i = 0; i < (int)g_pcList[side].size(); i++) {
