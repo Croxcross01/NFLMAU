@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Madden NFL Arcade PC - build pipeline from YOUR OWN game dump.
+"""Madden Arcade Unleashed - build pipeline from YOUR OWN game dump.
 
     python setup.py --dump "<path to your XBLA package file or extracted game folder>"
 

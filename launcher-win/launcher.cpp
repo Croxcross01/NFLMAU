@@ -1,4 +1,4 @@
-// Madden NFL Arcade PC - launcher (native Win32, no dependencies).
+// Madden Arcade Unleashed - launcher (native Win32, no dependencies).
 // Pick your own game files (the extracted folder or the original XBLA package), then press Play.
 #define UNICODE
 #define _UNICODE
@@ -148,7 +148,7 @@ static void OnPlay() {
     if (g_proc) { if (g_proc != INVALID_HANDLE_VALUE) TerminateProcess(g_proc, 1); return; }
     wchar_t p[MAX_PATH * 2]; GetWindowTextW(g_path, p, MAX_PATH * 2);
     std::wstring path = p; while (!path.empty() && (path.back() == L'\\' || path.back() == L' ')) path.pop_back();
-    if (path.empty() || (!DirExists(path) && !FileExists(path))) { MessageBoxW(g_wnd, L"Choose your game folder (or package file) first.", L"Madden NFL Arcade PC", MB_ICONINFORMATION); return; }
+    if (path.empty() || (!DirExists(path) && !FileExists(path))) { MessageBoxW(g_wnd, L"Choose your game folder (or package file) first.", L"Madden Arcade Unleashed", MB_ICONINFORMATION); return; }
     WritePrivateProfileStringW(L"launcher", L"game", path.c_str(), IniPath().c_str());
     if (g_logFile) fclose(g_logFile);
     g_logFile = _wfopen((g_exeDir + L"\\madden_log.txt").c_str(), L"wb");
@@ -245,7 +245,7 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT m, WPARAM wp, LPARAM lp) {
         SetWindowTextW(g_path, saved);
         if (!saved[0]) { g_statusText = L"Choose your game files on the Settings page"; g_statusDot = RGB(255, 193, 58); }
         CheckModUpdate(true);
-        AppendUI(L"Madden NFL Arcade PC - early test build\n\n"
+        AppendUI(L"Madden Arcade Unleashed - test build\n\n"
                  L"Use your own copy of the game. Pick the folder with your game files (Arcadegame.dll and the qkl_*.ast archives),\n"
                  L"or the original XBLA package file, then press Play.\n\n"
                  L"What to expect right now: the game opens its own window (Vulkan) and runs at ~30 frames per second - logic, loading,\n"
@@ -332,7 +332,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW); wc.hbrBackground = nullptr;
     wc.hIcon = LoadIcon(inst, MAKEINTRESOURCE(1)); if (!wc.hIcon) wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     RegisterClassW(&wc);
-    HWND hw = CreateWindowW(wc.lpszClassName, L"Madden NFL Arcade PC - Launcher", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 1360, 860, nullptr, nullptr, inst, nullptr);
+    HWND hw = CreateWindowW(wc.lpszClassName, L"Madden Arcade Unleashed", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 1360, 860, nullptr, nullptr, inst, nullptr);
     ShowWindow(hw, show); UpdateWindow(hw);
     MSG msg; while (GetMessageW(&msg, nullptr, 0, 0)) { if (!IsDialogMessageW(hw, &msg)) { TranslateMessage(&msg); DispatchMessageW(&msg); } }
     return 0;

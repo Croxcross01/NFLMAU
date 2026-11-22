@@ -1,4 +1,6 @@
-# Madden NFL Arcade PC (static recompilation)
+# Madden Arcade Unleashed
+
+*A native PC version of Madden NFL Arcade (static recompilation), with gameplay mods.*
 
 An unofficial native PC port of **Madden NFL Arcade** (Xbox 360, XBLA, 2009), made by statically recompiling the
 game's PowerPC code into C++ with [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) and running it on a

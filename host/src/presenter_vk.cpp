@@ -121,7 +121,7 @@ struct Window {
         wc.hCursor = LoadCursor(nullptr, IDC_ARROW); wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
         RegisterClassW(&wc);
         RECT r{0, 0, (LONG)cw, (LONG)ch}; AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-        hwnd = CreateWindowW(wc.lpszClassName, L"Madden NFL Arcade PC", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+        hwnd = CreateWindowW(wc.lpszClassName, L"Madden Arcade Unleashed", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                              r.right - r.left, r.bottom - r.top, nullptr, nullptr, wc.hInstance, nullptr);
         if (!hwnd) return false;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)this);
@@ -155,7 +155,7 @@ struct Window {
     SDL_Window* win = nullptr;
     bool Create(uint32_t cw, uint32_t ch, bool fs) {
         if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "[video] SDL: %s\n", SDL_GetError()); return false; }
-        win = SDL_CreateWindow("Madden NFL Arcade PC", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, (int)cw, (int)ch,
+        win = SDL_CreateWindow("Madden Arcade Unleashed", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, (int)cw, (int)ch,
                                SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | (fs ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
         if (!win) { fprintf(stderr, "[video] SDL window: %s\n", SDL_GetError()); return false; }
         int dw, dh; SDL_Vulkan_GetDrawableSize(win, &dw, &dh); w = dw; h = dh; fullscreen = fs;
@@ -231,7 +231,7 @@ struct VkPresenter {
         if (!win.Create(g_settings.windowWidth, g_settings.windowHeight, g_settings.fullscreen)) return false;
         auto exts = win.InstanceExtensions();
         uint32_t loaderVer = VK_API_VERSION_1_0; if (vkEnumerateInstanceVersion) vkEnumerateInstanceVersion(&loaderVer);
-        VkApplicationInfo ai{VK_STRUCTURE_TYPE_APPLICATION_INFO}; ai.pApplicationName = "Madden NFL Arcade PC";
+        VkApplicationInfo ai{VK_STRUCTURE_TYPE_APPLICATION_INFO}; ai.pApplicationName = "Madden Arcade Unleashed";
         ai.apiVersion = loaderVer >= VK_API_VERSION_1_3 ? VK_API_VERSION_1_3 : VK_API_VERSION_1_1;
         VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO}; ici.pApplicationInfo = &ai;
         ici.enabledExtensionCount = (uint32_t)exts.size(); ici.ppEnabledExtensionNames = exts.data();
@@ -430,7 +430,7 @@ void RenderThread() {
     uint32_t swaps = 0; auto tick = std::chrono::steady_clock::now(); auto lastPresent = tick; bool fresh = false;
     auto title = [&](double fps) {
         char t[256];
-        snprintf(t, sizeof t, "Madden NFL Arcade PC  |  Vulkan - %s  |  internal %ux%u (%ux)%s%s", vp.gpuName.c_str(),
+        snprintf(t, sizeof t, "Madden Arcade Unleashed  |  Vulkan - %s  |  internal %ux%u (%ux)%s%s", vp.gpuName.c_str(),
                  1280 * g_settings.resolutionScale, 720 * g_settings.resolutionScale, g_settings.resolutionScale,
                  g_settings.showFps ? "  |  " : "", g_settings.showFps ? (std::to_string((int)(fps + 0.5)) + " fps").c_str() : "");
         vp.win.SetTitle(t);

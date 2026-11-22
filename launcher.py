@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Madden NFL Arcade PC launcher: pick your own game dump, build once, then play."""
+"""Madden Arcade Unleashed launcher: pick your own game dump, build once, then play."""
 import json, os, pathlib, subprocess, sys, threading
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, messagebox
@@ -24,7 +24,7 @@ def find_exe():
 class Launcher(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Madden NFL Arcade PC'); self.geometry('760x520'); self.minsize(560, 380)
+        self.title('Madden Arcade Unleashed'); self.geometry('760x520'); self.minsize(560, 380)
         self.s = load_settings(); self.proc = None
         top = tk.Frame(self, padx=12, pady=10); top.pack(fill='x')
         tk.Label(top, text='Your game dump (XBLA package file or extracted folder):').pack(anchor='w')
@@ -71,7 +71,7 @@ class Launcher(tk.Tk):
 
     def build(self):
         d = self.dump.get().strip()
-        if not d or not os.path.exists(d): messagebox.showerror('Madden NFL Arcade PC', 'Choose your game dump first.'); return
+        if not d or not os.path.exists(d): messagebox.showerror('Madden Arcade Unleashed', 'Choose your game dump first.'); return
         self.s['dump'] = d; save_settings(self.s)
         self.build_btn.config(state='disabled'); self.status.config(text='Building... (this takes a while)')
         def done(code):

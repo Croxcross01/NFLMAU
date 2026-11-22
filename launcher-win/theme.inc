@@ -187,11 +187,11 @@ static void BuildFrame() {
     // brand
     Txt(dc, L"MADDEN", RECT{26, 24, cx - 10, 56}, g_fTitle, RGB(255, 255, 255));
     Txt(dc, L"ARCADE", RECT{26, 52, cx - 10, 84}, g_fTitle, RGB(110, 190, 255));
-    FillRound(RECT{140, 60, 182, 80}, 6, kAccent, 1.0);
-    Txt(dc, L"PC", RECT{140, 60, 182, 80}, g_fCap, RGB(255, 255, 255), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    FillRound(RECT{26, 86, 124, 106}, 6, kAccent, 1.0);
+    Txt(dc, L"UNLEASHED", RECT{26, 86, 124, 106}, g_fCap, RGB(255, 255, 255), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     // nav
     for (int i = 0; i < PAGE_COUNT; i++) {
-        RECT r{12, 116 + i * 52, cx - 12, 116 + i * 52 + 44};
+        RECT r{12, 128 + i * 52, cx - 12, 128 + i * 52 + 44};
         bool on = g_page == i, hov = g_hot == HIT_NAV + i;
         if (on) { FillRound(r, 10, 0x1B2A48, 1.0); FillRound(RECT{r.left, r.top + 10, r.left + 4, r.bottom - 10}, 2, kAccent, 1.0); }
         else if (hov) FillRound(r, 10, 0x141E34, 1.0);
