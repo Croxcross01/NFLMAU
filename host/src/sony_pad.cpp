@@ -27,7 +27,12 @@ typedef DWORD(WINAPI* XGet)(DWORD, XState*);
 struct Sony {
     std::wstring path; bool dualSense = false;
     std::mutex m; XState st{}; std::atomic<bool> alive{true};
+    // Steam Input, DS4Windows and similar already turn this controller into an Xbox one; then it must not count a
+    // second time (it would also press every button for player 2). It counts only once it has pressed buttons that
+    // no Xbox controller pressed at the same moment (or when there is no Xbox controller at all).
+    std::atomic<bool> own{false}, mirrored{false}; int distinct = 0, same = 0;
 };
+XGet RealXInput();
 std::mutex g_m;
 std::vector<Sony*> g_pads;   // never freed (a dead one is marked and skipped; a re-plugged pad gets a new entry)
 
@@ -107,7 +112,18 @@ void Reader(Sony* s) {
         else if (r[0] == 0x11 && n >= 12 && !s->dualSense) Convert(r + 3, false, x);   // DualShock 4, Bluetooth full
         else if (r[0] == 0x31 && n >= 12 && s->dualSense) Convert(r + 2, true, x);     // DualSense, Bluetooth full
         else ok = false;
-        if (ok) { std::lock_guard<std::mutex> l(s->m); x.packet = std::max<DWORD>(1, s->st.packet + (memcmp(&x.buttons, &s->st.buttons, sizeof(XState) - 4) ? 1 : 0)); s->st = x; }
+        if (ok) {
+            WORD pressedNow = 0;
+            { std::lock_guard<std::mutex> l(s->m); pressedNow = x.buttons & ~s->st.buttons; x.packet = std::max<DWORD>(1, s->st.packet + (memcmp(&x.buttons, &s->st.buttons, sizeof(XState) - 4) ? 1 : 0)); s->st = x; }
+            if (pressedNow && !s->own && !s->mirrored) {   // a new press: does an Xbox controller show it too?
+                XGet xg = RealXInput(); bool any = false, match = false;
+                for (DWORD i = 0; i < 4 && xg; i++) { XState t{}; if (xg(i, &t) == 0) { any = true; if ((t.buttons & pressedNow) == pressedNow) match = true; } }
+                if (!any) s->own = true;
+                else if (match) { if (++s->same >= 3) { s->mirrored = true; fprintf(stderr, "[input] PlayStation controller is already an Xbox controller (Steam / DS4Windows) - used once, as that\n"); } }
+                else if (++s->distinct >= 2) s->own = true;
+                if (s->own) fprintf(stderr, "[input] PlayStation controller in use\n");
+            }
+        }
     }
     CloseHandle(h);
     s->alive = false;
@@ -148,7 +164,7 @@ void Scan() {
     H.Destroy(set);
 }
 
-XGet RealXInput() {
+XGet RealXInput() {   // (declared above)
     static XGet f = [] {
         for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"})
             if (HMODULE m = LoadLibraryA(dll)) if (auto p = (XGet)(void*)GetProcAddress(m, "XInputGetState")) return p;
@@ -187,6 +203,9 @@ extern "C" DWORD WINAPI MauXInputGetState(DWORD slot, void* out) {
     int k = 0;
     for (auto* p : g_pads) {
         if (!p->alive || !p->st.packet) continue;   // dead, or an interface that never sent input
+        if (!p->own) {   // not confirmed yet: only while there is no Xbox controller at all
+            if (p->mirrored || xboxMask.load()) continue;
+        }
         if (k++ == free) { std::lock_guard<std::mutex> l2(p->m); *s = p->st; return 0; }
     }
     return 1167;

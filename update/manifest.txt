@@ -1,5 +1,5 @@
-version=1.0.26
-pack=update/pack-1.0.26.zip
-sha256=f943d944158a1664b08948fadcb05e95592be8e581764c1089a88af938031ec3
+version=1.0.27
+pack=update/pack-1.0.27.zip
+sha256=5a3e7d5c0abc8ef60630cf30cedfad545ce50a2ceb5034e84880240ce9cb3176
 rebuild=0
-notes=PlayStation controllers (DualShock 4 / DualSense, USB or Bluetooth) work like Xbox controllers; the Online page shows who is connected
+notes=PlayStation controllers: never counted twice when Steam or DS4Windows already makes them Xbox controllers (fixes buttons not registering)
