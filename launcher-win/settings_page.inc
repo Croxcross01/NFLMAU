@@ -246,12 +246,6 @@ static void CreateSettingsPage(HWND hw, HFONT f) {
     MakeButton(hw, L"Use recommended", ID_S_RECOMMEND, f);
     MakeButton(hw, L"Save", ID_S_SAVE, f, BS_DEFPUSHBUTTON);
     g_sSaved = MakeLabel(hw, L"", f);
-    g_sGtagLabel = MakeLabel(hw, L"Online gamertag", f);
-    g_sGtag = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 0, 0, hw, (HMENU)(INT_PTR)ID_S_GTAG, nullptr, nullptr);
-    SendMessageW(g_sGtag, WM_SETFONT, (WPARAM)f, TRUE); SendMessageW(g_sGtag, EM_LIMITTEXT, 15, 0); g_settingsCtl.push_back(g_sGtag);
-    g_sOnline = MakeButton(hw, L"Play online (Xbox Live)", ID_S_ONLINE, f, BS_AUTOCHECKBOX);
-    MakeButton(hw, L"Save", ID_S_GTSAVE, f);
-    g_sGtInfo = MakeLabel(hw, L"", f);
     g_sNote = MakeLabel(hw, L"Internal resolution is what the game renders at before it is scaled to your screen: 2K and 4K make the picture sharper and need "
                             L"a stronger GPU. Alt+Enter or F11 switches fullscreen while playing. (The in-game picture itself is still being built.)", f);
 }
@@ -259,18 +253,14 @@ static void LayoutSettingsPage(int x, int y, int right, int bottom) {
     int cw = std::min(460, right - x - 200);
     MoveWindow(g_sGpu, x, y, right - x, 20, TRUE); y += 22;
     MoveWindow(g_sRec, x, y, right - x, 20, TRUE); y += 34;
-    for (auto& r : g_rows) { MoveWindow(r.label, x, y + 5, 160, 20, TRUE); MoveWindow(r.ctl, x + 180, y, cw, 300, TRUE); y += 33; }
+    for (auto& r : g_rows) { MoveWindow(r.label, x, y + 5, 160, 20, TRUE); MoveWindow(r.ctl, x + 180, y, cw, 300, TRUE); y += 36; }
     MoveWindow(g_sVsync, x + 180, y, 320, 24, TRUE); y += 28;
     MoveWindow(g_sFps, x + 180, y, 320, 24, TRUE); y += 28;
     MoveWindow(g_sDof, x + 180, y, 360, 24, TRUE); y += 38;
     MoveWindow(GetDlgItem(g_wnd, ID_S_RECOMMEND), x + 180, y, 170, 34, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_S_SAVE), x + 362, y, 110, 34, TRUE);
     MoveWindow(g_sSaved, x + 486, y + 7, 260, 20, TRUE); y += 46;
-    MoveWindow(g_sGtagLabel, x, y + 5, 160, 20, TRUE);
-    MoveWindow(g_sGtag, x + 180, y, 200, 28, TRUE);
-    MoveWindow(g_sOnline, x + 396, y + 2, 220, 24, TRUE);
-    MoveWindow(GetDlgItem(g_wnd, ID_S_GTSAVE), x + 626, y - 1, 90, 30, TRUE); y += 34;
-    MoveWindow(g_sGtInfo, x + 180, y, right - x - 180, 20, TRUE); y += 30;
+
     MoveWindow(g_sNote, x, y, right - x, std::max(40, bottom - y), TRUE);
 }
 static void ShowSettingsPage(bool show) { for (HWND c : g_settingsCtl) ShowWindow(c, show ? SW_SHOW : SW_HIDE); }
@@ -281,8 +271,7 @@ static bool SettingsCommand(WORD id, WORD code) {
         DeleteFileW(SettingsPath().c_str()); FillSettingsControls(); SaveSettings(true); SetWindowTextW(g_sSaved, L"Recommended settings applied.");
         return true; }
     case ID_S_SAVE: SaveSettings(); return true;
-    case ID_S_GTSAVE: SaveOnline(); return true;
-    case ID_S_GTAG: case ID_S_ONLINE: return true;
+
     case ID_S_RENDERER: case ID_S_SCALE: case ID_S_ANISO: case ID_S_MODE: case ID_S_WINSIZE: case ID_S_VSYNC: case ID_S_FPS: case ID_S_DOF: case ID_S_DEVICE:
         SetWindowTextW(g_sSaved, L""); return true;
     }

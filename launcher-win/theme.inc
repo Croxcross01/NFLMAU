@@ -5,8 +5,8 @@
 #include <olectl.h>
 #include <uxtheme.h>
 
-enum { PAGE_PLAY, PAGE_SETTINGS, PAGE_MODS, PAGE_LOG, PAGE_COUNT };
-static const wchar_t* kPageNames[] = {L"Play", L"Settings", L"Mods", L"Log"};
+enum { PAGE_PLAY, PAGE_SETTINGS, PAGE_MODS, PAGE_ONLINE, PAGE_LOG, PAGE_COUNT };
+static const wchar_t* kPageNames[] = {L"Play", L"Settings", L"Mods", L"Online", L"Log"};
 static const int kSideW = 232;
 static int g_page = PAGE_PLAY;
 static int g_hot = -1;                       // hovered hit id
@@ -122,6 +122,9 @@ static void NavIcon(HDC dc, int i, int cx, int cy, COLORREF c) {
     case PAGE_MODS: {
         POINT a[4] = {{cx, cy - 8}, {cx + 8, cy - 3}, {cx, cy + 2}, {cx - 8, cy - 3}}; Polygon(dc, a, 4);
         MoveToEx(dc, cx - 8, cy + 2, nullptr); LineTo(dc, cx, cy + 7); LineTo(dc, cx + 9, cy + 2); break; }
+    case PAGE_ONLINE:   // a globe
+        Ellipse(dc, cx - 8, cy - 8, cx + 9, cy + 9); Ellipse(dc, cx - 3, cy - 8, cx + 4, cy + 9);
+        MoveToEx(dc, cx - 8, cy, nullptr); LineTo(dc, cx + 9, cy); break;
     case PAGE_LOG:
         RoundRect(dc, cx - 7, cy - 8, cx + 8, cy + 9, 4, 4);
         for (int k = 0; k < 3; k++) { MoveToEx(dc, cx - 3, cy - 3 + k * 4, nullptr); LineTo(dc, cx + 4, cy - 3 + k * 4); }
@@ -274,7 +277,7 @@ static void BuildFrame() {
         }
     } else {
         Txt(dc, kPageNames[g_page], RECT{cx + 40, 22, w - 40, 66}, g_fH1, kText);
-        const wchar_t* sub = g_page == PAGE_SETTINGS ? L"Game files, renderer and picture quality" : g_page == PAGE_MODS ? L"Roster, players per side and the pre-game lineup window" : L"Everything the game prints while it runs (also saved to madden_log.txt)";
+        const wchar_t* sub = g_page == PAGE_SETTINGS ? L"Game files, renderer and picture quality" : g_page == PAGE_MODS ? L"Roster, players per side and the pre-game lineup window" : g_page == PAGE_ONLINE ? L"Your gamertag, and playing a friend in Xbox Live mode" : L"Everything the game prints while it runs (also saved to madden_log.txt)";
         Txt(dc, sub, RECT{cx + 42, 62, w - 40, 84}, g_fBody, kDim);
         g_card = RECT{cx + 32, 100, w - 32, h - 28};
         FillRound(g_card, 14, (uint32_t)GetRValue(kCardC) << 16 | GetGValue(kCardC) << 8 | GetBValue(kCardC), 1.0);

@@ -1,5 +1,5 @@
-version=1.0.16
-pack=update/pack-1.0.16.zip
-sha256=98b94dad335489103b4b1eaf8159895c6e564c6554c0ab1bf87d4d2551824d15
+version=1.0.17
+pack=update/pack-1.0.17.zip
+sha256=ff5269f5278ca8f22fa5626841aa34917b1679d564eec24423c439150cf8d5b1
 rebuild=0
-notes=Online play (Xbox Live mode) groundwork: set your gamertag on the Settings page
+notes=New Online page: host a game for a friend or join theirs with a join code (Xbox Live mode)

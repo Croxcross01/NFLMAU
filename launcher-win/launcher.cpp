@@ -3,6 +3,8 @@
 #define UNICODE
 #define _UNICODE
 #define NOMINMAX
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <commdlg.h>
 #include <shlobj.h>
@@ -46,6 +48,7 @@ static void Log(const std::wstring& t) {   // any thread
 #include "update.inc"
 #include "settings_page.inc"
 #include "mods_page.inc"
+#include "online_page.inc"
 
 // ---------------------------------------------------------------- STFS (XBLA package) extraction
 struct Stfs {
@@ -202,6 +205,7 @@ static void Layout(int w, int h) {
     MoveWindow(GetDlgItem(g_wnd, ID_BROWSE_FILE), r - 116, y + 23, 116, 30, TRUE);
     LayoutSettingsPage(x, y + 76, r, c.bottom - 16);
     LayoutModsPage(x, y, r);
+    LayoutOnlinePage(x, y, r, c.bottom - 16);
     // Log
     MoveWindow(g_trace, x, y, 160, 24, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_OPENLOG), r - 120, y - 3, 120, 30, TRUE);
@@ -213,6 +217,7 @@ static void ShowTab(int i) {
     for (HWND c : g_filesCtl) ShowWindow(c, i == PAGE_SETTINGS ? SW_SHOW : SW_HIDE);
     ShowSettingsPage(i == PAGE_SETTINGS);
     ShowModsPage(i == PAGE_MODS);
+    ShowOnlinePage(i == PAGE_ONLINE);
     Repaint(true);
 }
 
@@ -236,6 +241,8 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT m, WPARAM wp, LPARAM lp) {
         g_filesCtl = {lbl, g_path, b1, b2}; g_logCtl = {g_trace, ol, g_log};
         CreateSettingsPage(hw, ui);
         CreateModsPage(hw, ui);
+        CreateOnlinePage(hw, ui);
+        FillOnlineControls();
         ThemeChildren(hw);
         { RECT rc; GetClientRect(hw, &rc); Layout(rc.right, rc.bottom); }
         ShowTab(PAGE_PLAY);
@@ -292,6 +299,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
         SetTextColor((HDC)wp, kText); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush;
     case WM_TIMER: if (wp == 7) CheckModUpdate(false); if (wp == 8) CheckForUpdate(); return 0;
     case WM_UPD: OnUpdMessage(wp, lp); return 0;
+    case WM_HOST_READY: HostReady((HostResult*)lp); return 0;
     case WM_GETMINMAXINFO: ((MINMAXINFO*)lp)->ptMinTrackSize = {1060, 720}; return 0;
     case WM_CTLCOLORSTATIC:   // labels and check boxes sit on the solid card
         if ((HWND)lp == g_log) { SetTextColor((HDC)wp, RGB(170, 205, 240)); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush; }
@@ -303,7 +311,6 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_GPU_DETECTED: {
         bool first = GetFileAttributesW(SettingsPath().c_str()) == INVALID_FILE_ATTRIBUTES;
         FillSettingsControls();
-        FillOnlineControls();
         if (first) SaveSettings(true);   // first run: write the recommended settings
         std::wstring msg = g_gpus.empty() ? L"\nNo Vulkan graphics driver was found - update your GPU driver, then see the Settings tab.\n"
                                           : L"\nGraphics card: " + g_gpus[0].name + L" - see the Settings tab for the recommended renderer and resolution.\n";
@@ -312,6 +319,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_COMMAND:
         if (SettingsCommand(LOWORD(wp), HIWORD(wp))) return 0;
         if (ModsCommand(LOWORD(wp), HIWORD(wp))) return 0;
+        if (OnlineCommand(LOWORD(wp), HIWORD(wp))) return 0;
         switch (LOWORD(wp)) {
         case ID_PLAY: OnPlay(); break;
         case ID_BROWSE_DIR: BrowseDir(); break;

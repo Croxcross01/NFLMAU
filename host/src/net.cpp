@@ -6,6 +6,7 @@
 #include "net_win.h"
 #include <atomic>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -30,6 +31,18 @@ void Hex(const char* what, const uint8_t* p, int n) {   // first bytes of traffi
     std::string s; char b[4];
     for (int i = 0; i < n && i < 96; i++) { snprintf(b, sizeof b, "%02X", p[i]); s += b; }
     fprintf(stderr, "[net] %s %d bytes: %s%s\n", what, n, s.c_str(), n > 96 ? "..." : "");
+}
+// This PC's internet address: when hosting, from mods/online_host.txt; when joining, the friend's server tells it
+// (XIP= in its first reply). Goes into the Xbox address other players connect to.
+std::atomic<uint32_t> g_publicIp{0};
+uint32_t g_joinServer = 0;   // joining a friend: their server (mods/online_server.txt)
+std::mutex g_obsM; std::map<uint32_t, uint16_t> g_observedPort;   // peer address -> the port its packets really come from
+void SniffXip(const uint8_t* p, int n) {
+    if (n < 16 || memcmp(p, "@dir", 4) != 0) return;
+    std::string body((const char*)p + 12, n - 12);
+    size_t i = body.find("XIP="); if (i == std::string::npos) return;
+    std::string v = body.substr(i + 4); v = v.substr(0, v.find_first_of("\n \0"));
+    unsigned a, b, c, d; if (sscanf(v.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) == 4 && a != 127) { g_publicIp = a << 24 | b << 16 | c << 8 | d; fprintf(stderr, "[net] internet address %s\n", v.c_str()); }
 }
 int Ret(PPCContext& ctx, int r) { if (r < 0) { g_err = hn::LastError(); ctx.r3.u64 = 0xFFFFFFFFull; } else ctx.r3.u64 = (uint32_t)r; return r; }
 void ReadAddr(uint32_t a, uint32_t& ip, uint16_t& port) { ip = a ? ReadU32(a + 4) : 0; port = a ? R16(a + 2) : 0; }
@@ -66,7 +79,7 @@ bool LiveServiceAddr(uint32_t serviceId, uint32_t& ip, uint16_t& port) {
         char host[256] = ""; unsigned p = 0;
         if (FILE* f = fopen("mods/online_server.txt", "r")) { if (fscanf(f, "%255s %u", host, &p) != 2) host[0] = 0; fclose(f); }
         std::vector<uint32_t> ips;
-        if (host[0] && p && hn::Resolve(host, ips)) { sip = ips[0]; sport = (uint16_t)p; }
+        if (host[0] && p && hn::Resolve(host, ips)) { sip = ips[0]; sport = (uint16_t)p; g_joinServer = sip; fprintf(stderr, "[net] joining the server at %s\n", host); }
         else {   // the game connects to the service address on its own port (25860 seen), so listen on both
             sip = 0x7F000001; sport = 42127;
             if (!g_standIn.exchange(true)) StartLocalLobby();
@@ -125,6 +138,7 @@ IMP(NetDll_bind) {
 IMP(NetDll_connect) {
     TRACE(NetDll_connect);
     uint32_t ip; uint16_t port; ReadAddr(ctx.r5.u32, ip, port);
+    if (g_joinServer && (ip >> 24) == 127) ip = g_joinServer;   // the lobby is on the friend's PC, not this one
     int r = hn::Connect(ctx.r4.s32, ip, port);
     if (Log()) fprintf(stderr, "[net] connect(%d, %s:%u) -> %d (error %d)\n", ctx.r4.s32, Ip(ip).c_str(), port, r, r < 0 ? hn::LastError() : 0);
     Ret(ctx, r);
@@ -143,11 +157,12 @@ IMP(NetDll_send) {   // (caller, s, buf, len, flags)
 IMP(NetDll_recv) {
     TRACE(NetDll_recv);
     int r = Ret(ctx, hn::Recv(ctx.r4.s32, g_base + ctx.r5.u32, ctx.r6.s32, ctx.r7.s32));
-    if (r > 0) Hex("recv", g_base + ctx.r5.u32, r);
+    if (r > 0) { Hex("recv", g_base + ctx.r5.u32, r); SniffXip(g_base + ctx.r5.u32, r); }
 }
 IMP(NetDll_sendto) {   // (caller, s, buf, len, flags, to, tolen)
     TRACE(NetDll_sendto);
     uint32_t ip; uint16_t port; ReadAddr(ctx.r8.u32, ip, port);
+    { std::lock_guard<std::mutex> l(g_obsM); auto it = g_observedPort.find(ip); if (it != g_observedPort.end()) port = it->second; }   // through the peer's router
     int r = Ret(ctx, hn::SendTo(ctx.r4.s32, g_base + ctx.r5.u32, ctx.r6.s32, ctx.r7.s32, ip, port));
     if (r > 0 && Log()) fprintf(stderr, "[net] sendto %s:%u\n", Ip(ip).c_str(), port);
     if (r > 0) Hex("sendto", g_base + ctx.r5.u32, r);
@@ -157,6 +172,7 @@ IMP(NetDll_recvfrom) {   // (caller, s, buf, len, flags, from, fromlen*)
     uint32_t ip = 0; uint16_t port = 0;
     int r = Ret(ctx, hn::RecvFrom(ctx.r4.s32, g_base + ctx.r5.u32, ctx.r6.s32, ctx.r7.s32, &ip, &port));
     if (r >= 0) WriteAddr(ctx.r8.u32, ctx.r9.u32, ip, port);
+    if (r > 0 && (ip >> 24) != 127) { std::lock_guard<std::mutex> l(g_obsM); g_observedPort[ip] = port; }
     if (r > 0) Hex("recvfrom", g_base + ctx.r5.u32, r);
 }
 IMP(NetDll_getsockname) { TRACE(NetDll_getsockname); uint32_t ip = 0; uint16_t p = 0; if (Ret(ctx, hn::SockName(ctx.r4.s32, &ip, &p)) >= 0) WriteAddr(ctx.r5.u32, ctx.r6.u32, ip, p); }
@@ -180,7 +196,7 @@ IMP(NetDll_WSARecv) {
     WriteU32(ov, 0x103); WriteU32(ov + 4, 0);
     std::thread([s, len, buf, ov] {
         int r = hn::Recv(s, g_base + buf, (int)len, 0);
-        if (r > 0) Hex("recv (overlapped)", g_base + buf, r);
+        if (r > 0) { Hex("recv (overlapped)", g_base + buf, r); SniffXip(g_base + buf, r); }
         WriteU32(ov + 4, r > 0 ? (uint32_t)r : 0); WriteU32(ov, r >= 0 ? 0 : 0xC0000001);
         if (uint32_t ev = ReadU32(ov + 0x10)) KSetEventHandle(ev, true);
     }).detach();
@@ -205,10 +221,24 @@ IMP(NetDll_XNetGetTitleXnAddr) {
     uint32_t a = ctx.r4.u32; if (a) memset(g_base + a, 0, 0x24);
     if (!OnlineMode()) { ctx.r3.u64 = 0x1; return; }   // XNET_GET_XNADDR_PENDING
     static const uint32_t ip = hn::LocalIp();
-    if (a) { WriteU32(a, ip); WriteU32(a + 4, ip); W16(a + 8, 3074); for (int i = 0; i < 6; i++) g_base[a + 10 + i] = (uint8_t)(0x10 + i); }
+    static const uint32_t hostPub = [] {   // hosting: the launcher wrote this PC's internet address
+        uint32_t v = 0; char b[128];
+        if (FILE* f = fopen("mods/online_host.txt", "r")) { while (fgets(b, sizeof b, f)) { unsigned x1, x2, x3, x4; if (sscanf(b, "public=%u.%u.%u.%u", &x1, &x2, &x3, &x4) == 4) v = x1 << 24 | x2 << 16 | x3 << 8 | x4; } fclose(f); }
+        return v; }();
+    uint32_t pub = g_publicIp ? g_publicIp.load() : hostPub ? hostPub : ip;
+    if (a) { WriteU32(a, ip); WriteU32(a + 4, pub); W16(a + 8, 3074); for (int i = 0; i < 6; i++) g_base[a + 10 + i] = (uint8_t)(0x10 + i); }
     ctx.r3.u64 = 0x2 | 0x8 | 0x20 | 0x40 | 0x80;   // ethernet, DHCP, gateway, DNS, online
 }
-IMP(NetDll_XNetXnAddrToInAddr) { TRACE(NetDll_XNetXnAddrToInAddr); if (ctx.r6.u32) WriteU32(ctx.r6.u32, ReadU32(ctx.r4.u32 + 4) ? ReadU32(ctx.r4.u32 + 4) : ReadU32(ctx.r4.u32)); ctx.r3.u64 = 0; }
+// A player's Xbox address -> where to send: their internet address, or their home-network address when they are
+// behind the same router as this PC (same internet address).
+IMP(NetDll_XNetXnAddrToInAddr) {
+    TRACE(NetDll_XNetXnAddrToInAddr);
+    uint32_t lan = ReadU32(ctx.r4.u32), online = ReadU32(ctx.r4.u32 + 4), out = online ? online : lan;
+    if (online && lan && online == g_publicIp.load()) out = lan;
+    if (ctx.r6.u32) WriteU32(ctx.r6.u32, out);
+    if (Log()) fprintf(stderr, "[net] player address %s / %s -> %s\n", Ip(lan).c_str(), Ip(online).c_str(), Ip(out).c_str());
+    ctx.r3.u64 = 0;
+}
 IMP(NetDll_XNetInAddrToXnAddr) {   // (caller, ina, xnaddr*, xnkid*)
     TRACE(NetDll_XNetInAddrToXnAddr);
     if (ctx.r5.u32) { memset(g_base + ctx.r5.u32, 0, 0x24); WriteU32(ctx.r5.u32, ctx.r4.u32); WriteU32(ctx.r5.u32 + 4, ctx.r4.u32); W16(ctx.r5.u32 + 8, 3074); }
