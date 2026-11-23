@@ -31,7 +31,7 @@ const std::string& OnlineGamertag() {
     return tag;
 }
 bool OnlineMode() { return !OnlineGamertag().empty(); }
-static uint64_t OnlineXuid() {   // mods/online.txt line "xuid=<hex>" (set once by the launcher), else from the gamertag
+uint64_t OnlineXuid() {   // mods/online.txt line "xuid=<hex>" (set once by the launcher), else from the gamertag
     static const uint64_t x = [] {
         uint64_t v = 0;
         if (FILE* f = fopen("mods/online.txt", "r")) { char b[128]; while (fgets(b, sizeof b, f)) if (!strncmp(b, "xuid=", 5)) v = strtoull(b + 5, nullptr, 16); fclose(f); }

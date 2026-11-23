@@ -8,6 +8,8 @@
 #include <ws2tcpip.h>
 #include <atomic>
 #include <mutex>
+#include <wincrypt.h>
+#include "../setup-win/ws_client.h"
 
 enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, ID_O_PLAY, ID_O_READY, WM_HOST_READY = WM_APP + 60, WM_JOIN_CHECKED, WM_WHO, WM_PARTY };
 static HWND g_oParty, g_oWho, g_oHead1, g_oHead2, g_oHostLbl, g_oJoinLbl, g_oCodeShow, g_oCodeEdit, g_oStatus, g_oHelp;
@@ -175,7 +177,10 @@ static void RefreshOnlinePage() {
     else SetWindowTextW(g_oCodeShow, L"Not hosting.");
     EnableWindow(GetDlgItem(g_wnd, ID_O_COPY), hosting && !g_myCode.empty());
     EnableWindow(GetDlgItem(g_wnd, ID_O_STOP), hosting || !join.empty());
-    if (!join.empty() && !hosting) {
+    if (join.rfind("relay ", 0) == 0 && !hosting) {
+        std::string r = join.substr(6, 8); std::wstring code(r.begin(), r.end()); if (code.size() == 8) code.insert(4, L"-");
+        OnlineStatus(L"Joining a friend (code " + code + L"). When you see your friend below, press READY.");
+    } else if (!join.empty() && !hosting) {
         unsigned a, b, c, d; uint32_t ip = 0; if (sscanf(join.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) == 4) ip = a << 24 | b << 16 | c << 8 | d;
         OnlineStatus(L"Joining a friend (code " + CodeFromIp(ip) + L"). When you see your friend below, press READY.");
     }
@@ -229,9 +234,12 @@ static std::wstring* QueryWho(uint32_t ip) {
     }
     return new std::wstring(out.empty() ? L"Nobody has signed in yet - players show up once they reach Play Now > Xbox Live." : L"Connected now:  " + out);
 }
+static void PartyShow();
+static std::wstring RelayUrl();
 static void PollWho() {   // WM_TIMER on the Online page
     static std::atomic<bool> busy{false};
     if (busy) return;
+    if (!RelayUrl().empty()) { SetWindowTextW(g_oWho, L""); PartyShow(); return; }   // relay: the ready-up line shows who is here
     bool hosting = GetFileAttributesW((OnlineDir() + L"\\online_host.txt").c_str()) != INVALID_FILE_ATTRIBUTES;
     std::string join = bc::Trim(bc::ReadText(OnlineDir() + L"\\online_server.txt"));
     uint32_t ip = 0;
@@ -265,9 +273,35 @@ static std::atomic<uint32_t> g_partyGen{0};        // bumped to stop the current
 static std::wstring g_peerName; static bool g_peerReady = false, g_meReady = false, g_partyStarted = false;
 static std::wstring W8(const std::string& s) { std::wstring w; for (unsigned char c : s) w += (wchar_t)c; return w; }
 static void PartyUi() { PostMessageW(g_wnd, WM_PARTY, 0, 0); }
+
+// ---- Relay: when the project has an online server (mods/relay.txt, from the update pack), codes are room names on it
+// and both players connect OUT to it - no router or firewall setup on anyone's PC.
+static std::wstring RelayUrl() {
+    std::string u = bc::Trim(bc::ReadText(OnlineDir() + L"\\relay.txt"));
+    if (u.rfind("http", 0) != 0) return L"";
+    while (!u.empty() && u.back() == '/') u.pop_back();
+    return std::wstring(u.begin(), u.end());
+}
+static std::wstring NewRoomCode() {   // 8 letters/digits, shown as XXXX-XXXX
+    HCRYPTPROV p = 0; BYTE r[8] = {};
+    if (!(CryptAcquireContextW(&p, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT) && CryptGenRandom(p, 8, r))) for (auto& x : r) x = (BYTE)(rand() ^ GetTickCount());
+    if (p) CryptReleaseContext(p, 0);
+    std::wstring c; for (int i = 0; i < 8; i++) { c += (wchar_t)kB32[r[i] & 31]; if (i == 3) c += L'-'; }
+    return c;
+}
+static std::string RoomOf(const std::wstring& code) {   // "7k3q-9xpd" -> "7K3Q9XPD" (O->0, I/L->1), "" if not 8 chars
+    std::string s;
+    for (wchar_t ch : code) { ch = towupper(ch); if (ch == L'-' || ch == L' ') continue; if (ch == L'O') ch = L'0'; if (ch == L'I' || ch == L'L') ch = L'1';
+                              if (!strchr(kB32, (char)ch) || !ch) return ""; s += (char)ch; }
+    return s.size() == 8 ? s : "";
+}
+static wsc::Client* g_partyWs = nullptr;   // the relay link (relay mode)
+static bool g_peerUp = false;              // relay: the other player is connected to the room
 static void PartySend(const std::string& line) {
     std::lock_guard<std::mutex> l(g_partyM);
-    if (g_partySock != INVALID_SOCKET) { std::string m = line + "\n"; send(g_partySock, m.data(), (int)m.size(), 0); }
+    std::string m = line + "\n";
+    if (g_partyWs) { g_partyWs->Send(m.data(), m.size()); return; }
+    if (g_partySock != INVALID_SOCKET) send(g_partySock, m.data(), (int)m.size(), 0);
 }
 static void PartyHello() { PartySend("HELLO " + Utf8(OnlineGet(L"gamertag"))); PartySend(std::string("READY ") + (g_meReady ? "1" : "0")); }
 // both ready: the host starts now and tells the friend; the friend starts 4 seconds after hearing it
@@ -277,6 +311,14 @@ static void PartyMaybeStart() {
     PartySend("START");
     PostMessageW(g_wnd, WM_PARTY, 1, 0);   // start the game (UI thread)
 }
+static void PartyLine(const std::string& line) {   // one line from the other launcher
+    { std::lock_guard<std::mutex> l(g_partyM);
+      if (line.rfind("HELLO ", 0) == 0) g_peerName = W8(line.substr(6, 15));
+      else if (line.rfind("READY ", 0) == 0) g_peerReady = line[6] == '1'; }
+    if (line == "START" && g_partyRole == 2 && !g_partyStarted) { g_partyStarted = true; PostMessageW(g_wnd, WM_PARTY, 2, 0); }
+    PartyMaybeStart();
+    PartyUi();
+}
 // reads lines from the other launcher until it goes away
 static void PartyRead(SOCKET s, uint32_t gen) {
     std::string buf; char b[512]; int n;
@@ -284,12 +326,7 @@ static void PartyRead(SOCKET s, uint32_t gen) {
         buf.append(b, n);
         for (size_t e; (e = buf.find('\n')) != std::string::npos; buf.erase(0, e + 1)) {
             std::string line = buf.substr(0, e); if (!line.empty() && line.back() == '\r') line.pop_back();
-            { std::lock_guard<std::mutex> l(g_partyM);
-              if (line.rfind("HELLO ", 0) == 0) g_peerName = W8(line.substr(6, 15));
-              else if (line.rfind("READY ", 0) == 0) g_peerReady = line[6] == '1'; }
-            if (line == "START" && g_partyRole == 2 && !g_partyStarted) { g_partyStarted = true; PostMessageW(g_wnd, WM_PARTY, 2, 0); }
-            PartyMaybeStart();
-            PartyUi();
+            PartyLine(line);
         }
     }
     { std::lock_guard<std::mutex> l(g_partyM); if (g_partySock == s) g_partySock = INVALID_SOCKET; g_peerName.clear(); g_peerReady = false; }
@@ -335,9 +372,44 @@ static void PartyJoinThread(uint32_t ip, uint32_t gen) {   // keeps trying until
         for (int i = 0; i < 3 && g_partyGen == gen; i++) Sleep(1000);
     }
 }
+// relay: stays connected to the room (reconnecting if the link drops); the other player shows up with "peer:up"
+static std::wstring g_relayNote;
+static void PartyRelayThread(std::string room, bool host, uint32_t gen) {
+    std::wstring base = RelayUrl();
+    std::wstring url = base + L"/room/" + std::wstring(room.begin(), room.end()) + L"/party?role=" + (host ? L"host" : L"join");
+    bool woke = false;
+    while (g_partyGen == gen) {
+        auto* ws = new wsc::Client;
+        if (!ws->Connect(url, 20000)) {
+            delete ws;
+            if (!woke) { { std::lock_guard<std::mutex> l(g_partyM); g_relayNote = L"Waking up the online server (about a minute the first time)..."; } PartyUi(); wsc::Wake(base); woke = true; continue; }
+            { std::lock_guard<std::mutex> l(g_partyM); g_relayNote = L"Can't reach the online server - check your internet connection. Retrying..."; } PartyUi();
+            for (int i = 0; i < 5 && g_partyGen == gen; i++) Sleep(1000);
+            continue;
+        }
+        { std::lock_guard<std::mutex> l(g_partyM); g_partyWs = ws; g_relayNote.clear(); }
+        PartyUi();
+        std::string msg, buf; bool text = false;
+        while (g_partyGen == gen && ws->Receive(msg, text)) {
+            if (text) {
+                if (msg == "peer:up") { { std::lock_guard<std::mutex> l(g_partyM); g_peerUp = true; } PartyHello(); }
+                if (msg == "peer:down") { std::lock_guard<std::mutex> l(g_partyM); g_peerUp = false; g_peerName.clear(); g_peerReady = false; }
+                PartyUi(); continue;
+            }
+            buf += msg;
+            for (size_t e; (e = buf.find('\n')) != std::string::npos; buf.erase(0, e + 1)) { std::string line = buf.substr(0, e); if (!line.empty() && line.back() == '\r') line.pop_back(); PartyLine(line); }
+        }
+        { std::lock_guard<std::mutex> l(g_partyM); if (g_partyWs == ws) g_partyWs = nullptr; g_peerUp = false; g_peerName.clear(); g_peerReady = false; }
+        ws->Close();
+        // (not deleted: another thread may still be sending on it - a few bytes per lost link)
+        PartyUi();
+        if (g_partyGen == gen) Sleep(2000);
+    }
+}
 static void PartyStop() {
     g_partyGen++;
     { std::lock_guard<std::mutex> l(g_partyM); if (g_partySock != INVALID_SOCKET) { send(g_partySock, "BYE\n", 4, 0); closesocket(g_partySock); g_partySock = INVALID_SOCKET; }
+      if (g_partyWs) { g_partyWs->Close(); g_partyWs = nullptr; } g_peerUp = false; g_relayNote.clear();
       g_peerName.clear(); g_peerReady = false; g_meReady = false; g_partyStarted = false; }
     g_partyRole = 0;
     PartyUi();
@@ -350,14 +422,17 @@ static void PartyAfterGame() {
     PartyUi();
 }
 static void PartyStartHost() { PartyStop(); g_partyRole = 1; uint32_t gen = g_partyGen; std::thread(PartyHostThread, gen).detach(); PartyUi(); }
+static void PartyStartRelay(const std::string& room, bool host) { PartyStop(); g_partyRole = host ? 1 : 2; uint32_t gen = g_partyGen; std::thread(PartyRelayThread, room, host, gen).detach(); PartyUi(); }
 static void PartyStartJoin(uint32_t ip) { PartyStop(); g_partyRole = 2; uint32_t gen = g_partyGen; std::thread(PartyJoinThread, ip, gen).detach(); PartyUi(); }
 // the "who / ready" line and the Ready button text
 static void PartyShow() {
     std::wstring t, me = OnlineGet(L"gamertag");
     std::wstring peer; bool pr, mr, conn;
-    { std::lock_guard<std::mutex> l(g_partyM); peer = g_peerName; pr = g_peerReady; mr = g_meReady; conn = g_partySock != INVALID_SOCKET; }
+    { std::lock_guard<std::mutex> l(g_partyM); peer = g_peerName; pr = g_peerReady; mr = g_meReady; conn = g_partySock != INVALID_SOCKET || (g_partyWs && g_peerUp); }
+    std::wstring note; { std::lock_guard<std::mutex> l(g_partyM); note = g_relayNote; }
     int role = g_partyRole;
     if (!role) t = L"Host a game or join one with a code to play a friend.";
+    else if (!conn && !note.empty()) t = note;
     else if (!conn) t = role == 1 ? L"Waiting for your friend to join with your code..." : L"Connecting to your friend... If this doesn't change in a few seconds, your friend's PC isn't letting connections in - they should press Host a game again and say yes when Windows asks.";
     else {
         std::wstring other = peer.empty() ? L"your friend" : peer;
@@ -432,8 +507,11 @@ static void CreateOnlinePage(HWND hw, HFONT f) {
                          L"nobody else can get into yours without your code. The host's PC has to stay on while you play.", f);
     std::wstring code; wchar_t b[32] = L""; GetPrivateProfileStringW(L"online", L"hostcode", L"", b, 32, LauncherIni().c_str()); g_myCode = b;
     // hosting / joining from last time: reconnect the ready-up link
-    if (GetFileAttributesW((OnlineDir() + L"\\online_host.txt").c_str()) != INVALID_FILE_ATTRIBUTES) PartyStartHost();
-    else { std::string j = bc::Trim(bc::ReadText(OnlineDir() + L"\\online_server.txt")); unsigned a1, a2, a3, a4;
+    std::string hostTxt = bc::ReadText(OnlineDir() + L"\\online_host.txt"), j = bc::Trim(bc::ReadText(OnlineDir() + L"\\online_server.txt"));
+    if (hostTxt.rfind("relay=", 0) == 0 && !RelayUrl().empty()) PartyStartRelay(bc::Trim(hostTxt.substr(6, hostTxt.find('\n') - 6)), true);
+    else if (!hostTxt.empty()) PartyStartHost();
+    else if (j.rfind("relay ", 0) == 0 && !RelayUrl().empty()) PartyStartRelay(j.substr(6, 8), false);
+    else { unsigned a1, a2, a3, a4;
            if (sscanf(j.c_str(), "%u.%u.%u.%u", &a1, &a2, &a3, &a4) == 4) PartyStartJoin(a1 << 24 | a2 << 16 | a3 << 8 | a4); }
 }
 static void LayoutOnlinePage(int x, int y, int right, int bottom) {
@@ -478,6 +556,17 @@ static bool OnlineCommand(WORD id, WORD code) {
     case ID_O_GTAG: case ID_O_ONLINE: case ID_O_CODE: return true;
     case ID_O_HOST:
         if (OnlineGet(L"gamertag").empty() || OnlineGet(L"enabled") != L"1") { OnlineStatus(L"Pick a gamertag, tick Play online and press Save first."); return true; }
+        if (!RelayUrl().empty()) {   // through the online server: a room code, nothing to set up
+            std::wstring code = OnlineGet(L"roomcode"); if (RoomOf(code).empty()) { code = NewRoomCode(); OnlineSet(L"roomcode", code); }
+            CreateDirectoryW(OnlineDir().c_str(), nullptr);
+            bc::WriteText(OnlineDir() + L"\\online_host.txt", "relay=" + RoomOf(code) + "\nurl=" + bc::N(RelayUrl()) + "\n");
+            DeleteFileW((OnlineDir() + L"\\online_server.txt").c_str());
+            g_myCode = code; WritePrivateProfileStringW(L"online", L"hostcode", code.c_str(), LauncherIni().c_str());
+            OnlineStatus(L"Hosting. Send your friend the code - when you see each other below, both press READY.");
+            RefreshOnlinePage();
+            PartyStartRelay(RoomOf(code), true);
+            return true;
+        }
         if (!FirewallRuleExists()) {
             OnlineStatus(L"Windows will ask for permission once - this lets your friend's connection through Windows Firewall.");
             if (!AddFirewallRules()) OnlineStatus(L"Windows Firewall wasn't updated (permission not given) - your friend may not be able to connect. Press Host a game again to retry.");
@@ -497,6 +586,17 @@ static bool OnlineCommand(WORD id, WORD code) {
     case ID_O_JOIN: {
         if (OnlineGet(L"gamertag").empty() || OnlineGet(L"enabled") != L"1") { OnlineStatus(L"Pick a gamertag, tick Play online and press Save first."); return true; }
         wchar_t b[32] = L""; GetWindowTextW(g_oCodeEdit, b, 32);
+        if (!RelayUrl().empty()) {
+            std::string room = RoomOf(b);
+            if (room.empty()) { OnlineStatus(L"That code doesn't look right - it's 8 letters and numbers, like 7K3Q-9XPD."); return true; }
+            CreateDirectoryW(OnlineDir().c_str(), nullptr);
+            bc::WriteText(OnlineDir() + L"\\online_server.txt", "relay " + room + " " + bc::N(RelayUrl()) + "\n");
+            DeleteFileW((OnlineDir() + L"\\online_host.txt").c_str());
+            RefreshOnlinePage();
+            PartyStartRelay(room, false);
+            OnlineStatus(L"Joining - when you see your friend below, press READY.");
+            return true;
+        }
         uint32_t ip;
         if (!IpFromCode(b, ip)) { OnlineStatus(L"That code doesn't look right - it's 8 letters and numbers, like 7K3Q-9XPD."); return true; }
         CreateDirectoryW(OnlineDir().c_str(), nullptr);

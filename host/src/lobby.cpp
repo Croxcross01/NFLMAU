@@ -3,6 +3,7 @@
 // length (big-endian, header included), then KEY=value lines ending in a 0 byte.
 // Directory: the game sends @dir and is told where the lobby is. Lobby: login (addr, skey, news, auth, pers, sele)
 // and everything after. What isn't known yet is answered with an empty reply of the same command, and logged.
+bool RelayMode();   // net.cpp
 #include "net_win.h"
 #include <atomic>
 #include <chrono>
@@ -75,7 +76,7 @@ void SendTo(Session& s, const std::string& m) {
     hn::Send(s.sock, m.data(), (int)m.size(), 0);
     if (m.compare(0, 4, "mau?") != 0 && m.compare(0, 4, "~png") != 0) fprintf(stderr, "[lobby] #%d <- %s %s\n", s.id, Printable(m.substr(0, 4)).c_str(), Printable(m.substr(12)).c_str());
 }
-bool Loopback(uint32_t ip) { return (ip >> 24) == 127; }
+bool Loopback(uint32_t ip) { return ip == 0x7F000001; }   // this PC's own game (relay players come from 127.0.0.2)
 // Where `who` can be reached from `viewer`'s PC: the host's own game shows up as 127.0.0.1 here, so others get
 // the host's internet address instead.
 std::string AddrFor(const Session& who, const Session& viewer) {
@@ -83,6 +84,7 @@ std::string AddrFor(const Session& who, const Session& viewer) {
     return IpText(who.ip);
 }
 std::string LanFor(const Session& who, const Session& viewer) {
+    if (RelayMode()) return AddrFor(who, viewer);   // relay games have no home-network addresses
     if (who.lanIp && (Loopback(who.ip) == Loopback(viewer.ip) || who.ip == viewer.ip)) return IpText(who.lanIp);
     return AddrFor(who, viewer);
 }
@@ -314,7 +316,10 @@ void Listen(uint16_t port) {
 // lobby takes connections from other PCs too. Otherwise it only serves this PC's own game.
 void StartLocalLobby() {
     static bool started = false; if (started) return; started = true;
-    if (FILE* fh = fopen("mods/online_host.txt", "r")) {
+    if (RelayMode()) {   // through the relay: friends arrive on this PC (127.0.0.2) and see the host as 127.0.0.3
+        g_hostPublic = 0x7F000003;
+        fprintf(stderr, "[lobby] hosting for friends through the relay server\n");
+    } else if (FILE* fh = fopen("mods/online_host.txt", "r")) {
         g_listenIp = 0; char b[128];
         while (fgets(b, sizeof b, fh)) if (!strncmp(b, "public=", 7)) { std::vector<uint32_t> v; std::string t = b + 7; while (!t.empty() && (t.back() == '\n' || t.back() == '\r')) t.pop_back(); if (hn::Resolve(t.c_str(), v)) g_hostPublic = v[0]; }
         fclose(fh);

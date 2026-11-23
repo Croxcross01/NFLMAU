@@ -1,5 +1,5 @@
-version=1.0.29
-pack=update/pack-1.0.29.zip
-sha256=20499e1b93c3f507fc806f52e19c3313b5e27c95d626a4ad43ab62ff8b8a2388
+version=1.0.30
+pack=update/pack-1.0.30.zip
+sha256=827693cfa9c761c5569c44ffb34f100438fd1c016605c06dfed62cbdc3ffc3f5
 rebuild=0
-notes=Hosting: adds a Windows Firewall rule (one permission prompt) so your friend's connection isn't blocked
+notes=Online: connect with a code through the Madden Arcade Unleashed online server - no router or port setup needed

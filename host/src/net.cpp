@@ -16,6 +16,7 @@
 #define TRACE(n) HostTrace("__imp__" #n, ctx)
 
 bool OnlineMode();
+uint64_t OnlineXuid();   // xam.cpp
 bool KSetEventHandle(uint32_t h, bool state);
 
 namespace {
@@ -57,6 +58,35 @@ void WriteAddr(uint32_t a, uint32_t lenPtr, uint32_t ip, uint16_t port) {
 // stand-in on this PC (127.0.0.1:42127) just records what the game sends.
 static std::atomic<bool> g_standIn{false};
 void StartLocalLobby();   // lobby.cpp
+void RelayStart(bool host, const std::string& room, const std::string& url);   // relay_tunnel.cpp
+bool RelayActive();
+uint32_t RelayPeerIp();
+bool RelaySendUdp(uint16_t fromPort, uint16_t toPort, const void* data, int n);
+// Online through the relay server (the launcher's codes when a relay is set up): hosting writes online_host.txt
+// "relay=ROOM" + "url=URL", joining writes online_server.txt "relay ROOM URL".
+struct RelayCfg { bool on = false, host = false; std::string room, url; };
+static const RelayCfg& Relay() {
+    static RelayCfg c = [] {
+        RelayCfg r; char b[512];
+        if (FILE* f = fopen("mods/online_host.txt", "r")) {
+            while (fgets(b, sizeof b, f)) {
+                std::string t = b; while (!t.empty() && (t.back() == '\n' || t.back() == '\r' || t.back() == ' ')) t.pop_back();
+                if (!t.compare(0, 6, "relay=")) r.room = t.substr(6); else if (!t.compare(0, 4, "url=")) r.url = t.substr(4);
+            }
+            fclose(f); r.host = true;
+        } else if (FILE* f = fopen("mods/online_server.txt", "r")) {
+            char room[64] = "", url[400] = "";
+            if (fscanf(f, "relay %63s %399s", room, url) == 2) { r.room = room; r.url = url; }
+            fclose(f);
+        }
+        r.on = !r.room.empty() && !r.url.empty();
+        if (!r.on) r.host = false;
+        return r; }();
+    return c;
+}
+bool RelayMode() { return OnlineMode() && Relay().on; }
+// In relay games each player's Xbox address carries an id made from their gamertag id, so the game can tell them apart.
+static uint32_t MyRelayId() { uint64_t x = OnlineXuid(); uint32_t v = (uint32_t)(x ^ (x >> 32)) * 2654435761u; return 0x0A000000 | (v & 0x00FFFFFF); }
 static void StandInServer(uint16_t port) {
     int ls = hn::Socket(2, 1, 6);
     if (ls < 0 || hn::Bind(ls, 0x7F000001, port) < 0 || hn::Listen(ls, 8) < 0) { fprintf(stderr, "[net] stand-in server: could not listen on %u\n", port); return; }
@@ -76,6 +106,13 @@ static void StandInServer(uint16_t port) {
 bool LiveServiceAddr(uint32_t serviceId, uint32_t& ip, uint16_t& port) {
     static uint32_t sip = 0; static uint16_t sport = 0;
     static bool once = [] {
+        if (RelayMode()) {   // through the relay: the lobby is reached on this PC either way
+            sip = 0x7F000001; sport = 25860;
+            if (Relay().host) { if (!g_standIn.exchange(true)) StartLocalLobby(); }
+            RelayStart(Relay().host, Relay().room, Relay().url);
+            fprintf(stderr, "[net] Live services through the relay (room %s)\n", Relay().room.c_str());
+            return true;
+        }
         char host[256] = ""; unsigned p = 0;
         if (FILE* f = fopen("mods/online_server.txt", "r")) { if (fscanf(f, "%255s %u", host, &p) != 2) host[0] = 0; fclose(f); }
         std::vector<uint32_t> ips;
@@ -162,6 +199,13 @@ IMP(NetDll_recv) {
 IMP(NetDll_sendto) {   // (caller, s, buf, len, flags, to, tolen)
     TRACE(NetDll_sendto);
     uint32_t ip; uint16_t port; ReadAddr(ctx.r8.u32, ip, port);
+    if (RelayActive() && ip == RelayPeerIp()) {   // to the other player: through the relay
+        uint32_t mip = 0; uint16_t mport = 0; hn::SockName(ctx.r4.s32, &mip, &mport);
+        int n = ctx.r6.s32;
+        Ret(ctx, RelaySendUdp(mport, port, g_base + ctx.r5.u32, n) ? n : -1);
+        if (Log()) fprintf(stderr, "[net] sendto (relay) :%u -> :%u %d bytes\n", mport, port, n);
+        return;
+    }
     { std::lock_guard<std::mutex> l(g_obsM); auto it = g_observedPort.find(ip); if (it != g_observedPort.end()) port = it->second; }   // through the peer's router
     int r = Ret(ctx, hn::SendTo(ctx.r4.s32, g_base + ctx.r5.u32, ctx.r6.s32, ctx.r7.s32, ip, port));
     if (r > 0 && Log()) fprintf(stderr, "[net] sendto %s:%u\n", Ip(ip).c_str(), port);
@@ -226,6 +270,13 @@ IMP(NetDll_XNetGetTitleXnAddr) {
         if (FILE* f = fopen("mods/online_host.txt", "r")) { while (fgets(b, sizeof b, f)) { unsigned x1, x2, x3, x4; if (sscanf(b, "public=%u.%u.%u.%u", &x1, &x2, &x3, &x4) == 4) v = x1 << 24 | x2 << 16 | x3 << 8 | x4; } fclose(f); }
         return v; }();
     uint32_t pub = g_publicIp ? g_publicIp.load() : hostPub ? hostPub : ip;
+    if (RelayMode() && a) {   // relay games: an id instead of real addresses (XnAddrToInAddr sorts them out)
+        uint32_t id = MyRelayId(); uint64_t x = OnlineXuid();
+        WriteU32(a, id); WriteU32(a + 4, id); W16(a + 8, 3074);
+        for (int i = 0; i < 6; i++) g_base[a + 10 + i] = (uint8_t)(x >> (8 * i));
+        g_base[a + 10] = (uint8_t)((g_base[a + 10] & 0xFE) | 0x02);
+        ctx.r3.u64 = 0x2 | 0x8 | 0x20 | 0x40 | 0x80; return;
+    }
     if (a) { WriteU32(a, ip); WriteU32(a + 4, pub); W16(a + 8, 3074); for (int i = 0; i < 6; i++) g_base[a + 10 + i] = (uint8_t)(0x10 + i); }
     ctx.r3.u64 = 0x2 | 0x8 | 0x20 | 0x40 | 0x80;   // ethernet, DHCP, gateway, DNS, online
 }
@@ -235,6 +286,11 @@ IMP(NetDll_XNetXnAddrToInAddr) {
     TRACE(NetDll_XNetXnAddrToInAddr);
     uint32_t lan = ReadU32(ctx.r4.u32), online = ReadU32(ctx.r4.u32 + 4), out = online ? online : lan;
     if (online && lan && online == g_publicIp.load()) out = lan;
+    if (RelayMode()) {   // relay games: this PC's own player -> 127.0.0.1, the other player -> where the relay delivers them
+        uint32_t v = online ? online : lan, selfOnHost = 0x7F000002;   // the lobby shows a joiner its own address as 127.0.0.2
+        bool mine = v == MyRelayId() || lan == MyRelayId() || v == 0x7F000001 || (!Relay().host && v == selfOnHost);
+        out = mine ? 0x7F000001 : RelayPeerIp();
+    }
     if (ctx.r6.u32) WriteU32(ctx.r6.u32, out);
     if (Log()) fprintf(stderr, "[net] player address %s / %s -> %s\n", Ip(lan).c_str(), Ip(online).c_str(), Ip(out).c_str());
     ctx.r3.u64 = 0;
@@ -345,5 +401,8 @@ PPC_FUNC(sub_88F43878) {
 // can connect before the host reaches the Xbox Live menu (and Windows asks about the firewall before the game window).
 void OnlineStartup() {
     if (!OnlineMode()) return;
-    if (FILE* f = fopen("mods/online_host.txt", "r")) { fclose(f); g_standIn = true; StartLocalLobby(); fprintf(stderr, "[net] hosting: lobby open for friends\n"); }
+    if (FILE* f = fopen("mods/online_host.txt", "r")) {
+        fclose(f); g_standIn = true; StartLocalLobby(); fprintf(stderr, "[net] hosting: lobby open for friends\n");
+        if (RelayMode()) RelayStart(true, Relay().room, Relay().url);   // friends come in through the relay
+    }
 }
