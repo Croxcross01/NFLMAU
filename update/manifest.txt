@@ -1,5 +1,5 @@
-version=1.0.22
-pack=update/pack-1.0.22.zip
-sha256=6d6ce6013d90431c80c858d8913137a258b4018a1cf5df521ce011f02c32c9b3
+version=1.0.23
+pack=update/pack-1.0.23.zip
+sha256=41b7f12f27a2b95f1f3fcb472ff7aaa557e1240add1fef92a2fc7ed8c5a50f18
 rebuild=0
-notes=Smoother on more PCs: no busy-waiting threads on the setup's build, precise frame timers everywhere, laptop graphics start at 720p
+notes=Passing fix: removed a per-frame player adjustment (added in 1.0.11) that could interfere with receivers and throws

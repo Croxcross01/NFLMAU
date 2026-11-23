@@ -1640,56 +1640,8 @@ void PcTick() {
         double sec = (double)ticks * std::chrono::steady_clock::period::num / std::chrono::steady_clock::period::den;
         fprintf(stderr, "[perf] match loaded in %.1f s (team select to the first play call, lineup window not counted)\n", sec);
     }
-    {   // Players not in the play are parked in a row just past the end zone (y = +-33 offense, +-36 defense). Normally
-        // they are not drawn, but after some play calls a few stayed visible standing in the end zone. Before the snap
-        // they are moved well behind it (out of every camera view); the game places anyone it brings in at his spot.
-        uint32_t plist = ReadU32(0x894C07D4);
-        static uint32_t loggedPlay = 0xFFFFFFFFu; extern uint32_t g_iconPlayId;
-        if (obj(plist))
-            for (uint32_t team = 0; team < 2; team++)
-                for (uint32_t i = 0; i < 11; i++) {
-                    PPCContext d = *live; d.r1.u64 = (live->r1.u32 - 0x1000) & ~15u; d.r3.u64 = plist; d.r4.u64 = i; d.r5.u64 = team;
-                    sub_8850F680(d, g_base);
-                    uint32_t pl = d.r3.u32; if (!obj(pl)) continue;
-                    uint32_t fl = ReadU32(pl + 260);
-                    if (fl & 0x800) continue;   // on the field
-                    auto rf = [&](uint32_t o2) { uint32_t u = ReadU32(pl + o2); float f; memcpy(&f, &u, 4); return f; };
-                    auto wf = [&](uint32_t o2, float f) { uint32_t u; memcpy(&u, &f, 4); WriteU32(pl + o2, u); };
-                    float y = rf(0x58);
-                    if (fl != 0x4C && loggedPlay != g_iconPlayId) {
-                        loggedPlay = g_iconPlayId; uint32_t q = ReadU32(pl + 932);
-                        fprintf(stderr, "[mods] parked player with flags %08X (team %u role %d, y %.1f) on %s - %s\n", fl, team,
-                                obj(q) ? (int)ReadU32(q + 136) : -1, y, g_offForm.c_str(), g_offPlay.c_str());
-                    }
-                    if (std::fabs(y) > 25.0f && std::fabs(y) < 50.0f) {
-                        float ny = y > 0 ? 80.0f : -80.0f;
-                        wf(0x58, ny); wf(0x128, ny); wf(0xA4, -ny);
-                    }
-                }
-    }
-    {   // diagnostics: a few seconds into the first three play calls, every player's role, flags, state and raw record
-        static int snaps = 0, held = 0; static uint32_t lastSeq = 0xFFFFFFFFu;
-        uint32_t plist = ReadU32(0x894C07D4);
-        if (snaps < 3 && obj(plist)) {
-            extern uint32_t g_iconPlayId;
-            if (lastSeq != g_iconPlayId) { lastSeq = g_iconPlayId; held = 0; }
-            if (++held == 15) {   // ~3 s after the play was set (PcTick runs every 6th frame)
-                snaps++;
-                fprintf(stderr, "[diag] players snapshot %d (lines mode %d, offense team %u)\n", snaps, g_linesMode, offT);
-                for (uint32_t team = 0; team < 2; team++)
-                    for (uint32_t i = 0; i < 11; i++) {
-                        PPCContext d = *live; d.r1.u64 = (live->r1.u32 - 0x1000) & ~15u; d.r3.u64 = plist; d.r4.u64 = i; d.r5.u64 = team;
-                        sub_8850F680(d, g_base);
-                        uint32_t pl = d.r3.u32, q = obj(pl) ? ReadU32(pl + 932) : 0;
-                        if (!obj(pl)) continue;
-                        std::string hex;
-                        for (uint32_t k = 0; k < 0x400; k += 4) { char b[10]; snprintf(b, sizeof b, "%08X", ReadU32(pl + k)); hex += b; }
-                        fprintf(stderr, "[diag] team %u slot %u role %d flags %08X%08X state %u/%u rec %s\n", team, i, obj(q) ? (int)ReadU32(q + 136) : -1,
-                                ReadU32(pl + 256), ReadU32(pl + 260), ReadU32(pl + 100), (uint32_t)g_base[pl + 112], hex.c_str());
-                    }
-            }
-        }
-    }
+    // (1.0.10-1.0.22 moved players not in the play and took player snapshots here every frame, calling into the
+    // game from this hook during live plays; removed - the test build never did it and throws went wrong with it)
     {   // remember which controller played which team (for the next lineup window)
         extern uint32_t g_lineupTeams[2]; void SaveLineupSide(int side, int port);
         static uint32_t savedFor[2] = {0xFFFFFFFFu, 0xFFFFFFFFu}; static int savedPort[2] = {-1, -1};
