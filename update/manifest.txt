@@ -1,5 +1,5 @@
-version=1.0.12
-pack=update/pack-1.0.12.zip
-sha256=06f459503889657f0cdc39111f6e36917a629f4e7a61015ffe3fb3eeb23c8445
+version=1.0.13
+pack=update/pack-1.0.13.zip
+sha256=94655d555dd7b515d90fa4010fa4ea84b67d37cd319c0b3f25894f74da7ac590
 rebuild=0
-notes=Menus: one d-pad tap now moves one item (no more skipping)
+notes=Menus: a d-pad tap moves exactly one item

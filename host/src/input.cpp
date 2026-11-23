@@ -158,7 +158,7 @@ bool ReadPad(uint32_t user, Pad& p, uint32_t& packet) {
 #endif
     }
     // Menus (outside a match): one tap of the d-pad or stick moves one item. A press is shown to the game for its
-    // first 90 ms, then held back until 400 ms (so the game's own repeat cannot fire on a normal tap), then passed
+    // first 15 ms (one menu update), then held back until 400 ms (so the game's own repeat cannot fire on a normal tap), then passed
     // through so holding still scrolls. A release shorter than 30 ms (switch bounce) is ignored.
     if (user < 4 && GameStateWord() >= 16) {   // match states are small numbers; menus read as none
         using namespace std::chrono;
@@ -172,7 +172,12 @@ bool ReadPad(uint32_t user, Pad& p, uint32_t& packet) {
             Dir& s = dirs[user][d];
             if (held[d]) { if (s.down < 0) s.down = now; s.up = -1; }
             else if (s.down >= 0) { if (s.up < 0) s.up = now; if (now - s.up >= 30) s.down = -1; else held[d] = true; }
-            bool show = held[d] && s.down >= 0 && (now - s.down < 90 || now - s.down >= 400);
+            static int tapMs = 15, holdMs = 400;   // 15 ms: the menus see a tap for one update only
+            static const bool cfg = [] {   // mods/menu_input.txt: "<tap ms> <hold ms>" to tune this
+                if (FILE* f = fopen("mods/menu_input.txt", "r")) { int a, b; if (fscanf(f, "%d %d", &a, &b) == 2 && a > 0 && b > a) { tapMs = a; holdMs = b; } fclose(f); }
+                fprintf(stderr, "[input] menu taps: %d ms, hold repeat after %d ms\n", tapMs, holdMs); return true; }();
+            (void)cfg;
+            bool show = held[d] && s.down >= 0 && (now - s.down < tapMs || now - s.down >= holdMs);
             if (show) p.buttons |= bits[d]; else p.buttons &= ~bits[d];
             if (!show) { if (d < 2 && (d == 0 ? p.ly > 0 : p.ly < 0)) p.ly = 0; if (d >= 2 && (d == 2 ? p.lx < 0 : p.lx > 0)) p.lx = 0; }
         }
