@@ -11,6 +11,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
+#ifdef _WIN32
+extern "C" DWORD WINAPI MauXInputGetState(DWORD slot, void* out);   // sony_pad.cpp: Xbox + PlayStation controllers
+#endif
 
 const uint32_t kLineupSlotPos[] = {0, 1, 2, 3, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 12, 13, 14, 15, 16, 16, 17, 18, 19, 20};
 const char* const kLineupSlotName[] = {"QB", "HB", "FB", "WR", "WR", "WR", "TE", "LT", "LG", "C", "RG", "RT",
@@ -635,7 +638,7 @@ bool ShowLineupPicker(LineupTeam& home, LineupTeam& away, int* playersMode, int*
     }
     if (!g_xget)
         for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"})
-            if (HMODULE m = LoadLibraryA(dll)) { g_xget = (XGetState)GetProcAddress(m, "XInputGetState"); if (g_xget) break; }
+            if (HMODULE m = LoadLibraryA(dll)) { g_xget = (XGetState)GetProcAddress(m, "XInputGetState"); if (g_xget) { g_xget = (XGetState)(void*)MauXInputGetState; break; } }
     // size: fit the game window (or the screen), keep the aspect
     HWND game = nullptr; g_wnd = nullptr; EnumWindows(FindGameWindow, (LPARAM)&game);
     RECT area;

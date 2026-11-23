@@ -52,6 +52,9 @@ bool PcParse(const std::vector<std::string>& c, PcPlay& p) {
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#ifdef _WIN32
+extern "C" DWORD WINAPI MauXInputGetState(DWORD slot, void* out);   // sony_pad.cpp: Xbox + PlayStation controllers
+#endif
 
 namespace {
 constexpr int W = 1240, H = 474;
@@ -354,7 +357,7 @@ DWORD g_padPrev, g_repeatAt, g_repeatBtn;
 void LoadX() {
     if (!g_xget)
         for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"})
-            if (HMODULE m = LoadLibraryA(dll)) { g_xget = (XGetState)GetProcAddress(m, "XInputGetState"); if (g_xget) break; }
+            if (HMODULE m = LoadLibraryA(dll)) { g_xget = (XGetState)GetProcAddress(m, "XInputGetState"); if (g_xget) { g_xget = (XGetState)(void*)MauXInputGetState; break; } }
 }
 DWORD g_portPrev[4], g_portRepAt[4], g_portRep[4];
 void PollPad() {

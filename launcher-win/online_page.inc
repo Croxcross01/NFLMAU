@@ -6,9 +6,10 @@
 // Included by launcher.cpp after settings_page.inc (which has the gamertag helpers).
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <atomic>
 
-enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, ID_O_PLAY, WM_HOST_READY = WM_APP + 60, WM_JOIN_CHECKED };
-static HWND g_oHead1, g_oHead2, g_oHostLbl, g_oJoinLbl, g_oCodeShow, g_oCodeEdit, g_oStatus, g_oHelp;
+enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, ID_O_PLAY, WM_HOST_READY = WM_APP + 60, WM_JOIN_CHECKED, WM_WHO };
+static HWND g_oWho, g_oHead1, g_oHead2, g_oHostLbl, g_oJoinLbl, g_oCodeShow, g_oCodeEdit, g_oStatus, g_oHelp;
 static std::vector<HWND> g_onlineCtl;
 static std::wstring g_myCode;
 static constexpr uint16_t kLobbyPort = 25860;
@@ -159,6 +160,60 @@ static bool CanReach(uint32_t ip, uint16_t port) {
     closesocket(s);
     return ok;
 }
+// Who is in the lobby right now: asks the lobby ("mau?" - answered by our lobby, never by the game) on the host's
+// PC (this PC when hosting, the friend's when joining). Polled every few seconds on the Online page.
+static std::wstring* QueryWho(uint32_t ip) {
+    WSADATA d; WSAStartup(MAKEWORD(2, 2), &d);
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); if (s == INVALID_SOCKET) return nullptr;
+    DWORD to = 3000; setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&to, sizeof to);
+    sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(kLobbyPort); a.sin_addr.s_addr = htonl(ip);
+    u_long nb = 1; ioctlsocket(s, FIONBIO, &nb); connect(s, (sockaddr*)&a, sizeof a);
+    fd_set w; FD_ZERO(&w); FD_SET(s, &w); timeval tv{3, 0};
+    if (select(0, nullptr, &w, nullptr, &tv) <= 0) { closesocket(s); return nullptr; }
+    nb = 0; ioctlsocket(s, FIONBIO, &nb);
+    const char q[13] = {'m', 'a', 'u', '?', 0, 0, 0, 0, 0, 0, 0, 13, 0};
+    send(s, q, 13, 0);
+    std::string buf; char b[2048]; int n;
+    while ((n = recv(s, b, sizeof b, 0)) > 0) {
+        buf.append(b, n);
+        if (buf.size() >= 12) { uint32_t len = (uint8_t)buf[8] << 24 | (uint8_t)buf[9] << 16 | (uint8_t)buf[10] << 8 | (uint8_t)buf[11]; if (buf.size() >= len) break; }
+    }
+    closesocket(s);
+    if (buf.size() < 12 || buf.compare(0, 4, "mau?") != 0) return nullptr;
+    std::string host, players;
+    for (size_t i = 12; i < buf.size();) {
+        size_t e = buf.find('\n', i); if (e == std::string::npos) e = buf.size();
+        std::string line = buf.substr(i, e - i); i = e + 1;
+        if (line.rfind("HOST=", 0) == 0) host = line.substr(5);
+        if (line.rfind("PLAYERS=", 0) == 0) players = line.substr(8);
+    }
+    std::wstring out;
+    size_t p = 0;
+    while (p <= players.size() && !players.empty()) {
+        size_t c = players.find(',', p); std::string name = players.substr(p, c == std::string::npos ? std::string::npos : c - p);
+        if (!name.empty()) { if (!out.empty()) out += L",  "; out += std::wstring(name.begin(), name.end()) + (name == host ? L" (host)" : L""); }
+        if (c == std::string::npos) break; p = c + 1;
+    }
+    return new std::wstring(out.empty() ? L"Nobody has signed in yet - players show up once they reach Play Now > Xbox Live." : L"Connected now:  " + out);
+}
+static void PollWho() {   // WM_TIMER on the Online page
+    static std::atomic<bool> busy{false};
+    if (busy) return;
+    bool hosting = GetFileAttributesW((OnlineDir() + L"\\online_host.txt").c_str()) != INVALID_FILE_ATTRIBUTES;
+    std::string join = bc::Trim(bc::ReadText(OnlineDir() + L"\\online_server.txt"));
+    uint32_t ip = 0;
+    if (hosting) ip = 0x7F000001;
+    else { unsigned a, b, c, d2; if (sscanf(join.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d2) == 4) ip = a << 24 | b << 16 | c << 8 | d2; }
+    if (!ip) { SetWindowTextW(g_oWho, L""); return; }
+    busy = true;
+    std::thread([ip, hosting] {
+        std::wstring* r = QueryWho(ip);
+        if (!r) r = new std::wstring(hosting ? L"Your lobby isn't open - press PLAY ONLINE to host." : L"The host's lobby isn't answering yet.");
+        PostMessageW(g_wnd, WM_WHO, 0, (LPARAM)r);
+        busy = false;
+    }).detach();
+}
+static void ShowWho(std::wstring* t) { SetWindowTextW(g_oWho, t->c_str()); delete t; }
 static void JoinChecked(bool ok, uint32_t ip) {
     OnlineStatus(ok ? L"Your friend's game answered (code " + CodeFromIp(ip) + L"). Press PLAY ONLINE, then go to Play Now > Xbox Live > Quick Match."
                     : L"Set to join code " + CodeFromIp(ip) + L", but their game didn't answer yet. Make sure your friend pressed PLAY ONLINE "
@@ -207,6 +262,7 @@ static void CreateOnlinePage(HWND hw, HFONT f) {
     OButton(hw, L"Join", ID_O_JOIN, f);
     OButton(hw, L"Stop hosting / joining", ID_O_STOP, f);
     g_oStatus = OLabel(hw, L"", f);
+    g_oWho = OLabel(hw, L"", f);
     g_oHelp = OLabel(hw, L"Online games start with PLAY ONLINE (the Play page's PLAY is always an offline game). One of you hosts and sends the join code; the other "
                          L"types it under Join. Then both press PLAY ONLINE and go to "
                          L"Play Now > Xbox Live and pick Quick Match. Every pair of players can host their own game this way - "
@@ -229,10 +285,14 @@ static void LayoutOnlinePage(int x, int y, int right, int bottom) {
     MoveWindow(g_oCodeEdit, x + 180, y + 3, 150, 28, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_O_JOIN), x + 346, y, 110, 34, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_O_STOP), x + 470, y, 220, 34, TRUE); y += 50;
-    MoveWindow(g_oStatus, x, y, right - x, 60, TRUE); y += 70;
+    MoveWindow(g_oWho, x, y, right - x, 22, TRUE); y += 30;
+    MoveWindow(g_oStatus, x, y, right - x, 60, TRUE); y += 66;
     MoveWindow(g_oHelp, x, y, right - x, std::max(40, bottom - y), TRUE);
 }
-static void ShowOnlinePage(bool show) { for (HWND c : g_onlineCtl) ShowWindow(c, show ? SW_SHOW : SW_HIDE); if (show) RefreshOnlinePage(); }
+static void ShowOnlinePage(bool show) {
+    for (HWND c : g_onlineCtl) ShowWindow(c, show ? SW_SHOW : SW_HIDE);
+    if (show) { RefreshOnlinePage(); PollWho(); SetTimer(g_wnd, 9, 3000, nullptr); } else KillTimer(g_wnd, 9);
+}
 static bool OnlineCommand(WORD id, WORD code) {
     switch (id) {
     case ID_O_GTSAVE: SaveOnline(); return true;

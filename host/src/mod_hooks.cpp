@@ -1279,6 +1279,9 @@ bool ModLinesFilter(PPCRegister& r3, PPCRegister& r11, PPCRegister& r15, PPCRegi
 #define NOMINMAX
 #include <windows.h>
 #endif
+#ifdef _WIN32
+extern "C" DWORD WINAPI MauXInputGetState(DWORD slot, void* out);   // sony_pad.cpp: Xbox + PlayStation controllers
+#endif
 // guest range [a, a+len) is committed, readable host memory (reading it cannot fault)
 bool GuestReadable(uint32_t a, uint32_t len) {
 #ifdef _WIN32
@@ -1492,7 +1495,7 @@ void PcWatch() {
     typedef DWORD(WINAPI* XGet)(DWORD, void*);
     XGet xget = nullptr;
     for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"})
-        if (HMODULE m = LoadLibraryA(dll)) { xget = (XGet)GetProcAddress(m, "XInputGetState"); if (xget) break; }
+        if (HMODULE m = LoadLibraryA(dll)) { xget = (XGet)GetProcAddress(m, "XInputGetState"); if (xget) { xget = (XGet)(void*)MauXInputGetState; break; } }
     struct Pad { DWORD packet; WORD buttons; BYTE lt, rt; SHORT lx, ly, rx, ry; };
     bool prev = true;
     for (;;) {

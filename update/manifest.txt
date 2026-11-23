@@ -1,5 +1,5 @@
-version=1.0.25
-pack=update/pack-1.0.25.zip
-sha256=6bca6639912e0c54b900e9d8214c7806a0c74b7a778e11a5bcfdb13731168618
+version=1.0.26
+pack=update/pack-1.0.26.zip
+sha256=f943d944158a1664b08948fadcb05e95592be8e581764c1089a88af938031ec3
 rebuild=0
-notes=Online: everyone plays the same 2027 roster; the host's lobby opens as soon as the game starts; Join checks your friend's game can be reached
+notes=PlayStation controllers (DualShock 4 / DualSense, USB or Bluetooth) work like Xbox controllers; the Online page shows who is connected

@@ -52,6 +52,7 @@ void InitInput() {
 struct XINPUT_GAMEPAD_ { WORD wButtons; BYTE bLeftTrigger, bRightTrigger; SHORT sThumbLX, sThumbLY, sThumbRX, sThumbRY; };
 struct XINPUT_STATE_ { DWORD dwPacketNumber; XINPUT_GAMEPAD_ Gamepad; };
 struct XINPUT_VIBRATION_ { WORD wLeftMotorSpeed, wRightMotorSpeed; };
+extern "C" unsigned long MauXInputGetState(unsigned long slot, void* out);   // sony_pad.cpp: Xbox + PlayStation controllers
 typedef DWORD (WINAPI *XInputGetState_t)(DWORD, XINPUT_STATE_*);
 typedef DWORD (WINAPI *XInputSetState_t)(DWORD, XINPUT_VIBRATION_*);
 XInputGetState_t pXInputGetState = nullptr; XInputSetState_t pXInputSetState = nullptr;
@@ -59,6 +60,7 @@ void LoadXInput() {
     for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"})
         if (HMODULE m = LoadLibraryA(dll)) {
             pXInputGetState = (XInputGetState_t)GetProcAddress(m, "XInputGetState");
+            if (pXInputGetState) pXInputGetState = (XInputGetState_t)(void*)MauXInputGetState;   // + PlayStation controllers
             pXInputSetState = (XInputSetState_t)GetProcAddress(m, "XInputSetState");
             if (pXInputGetState) { fprintf(stderr, "[input] using %s\n", dll); return; }
         }

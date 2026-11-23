@@ -73,7 +73,7 @@ uint32_t g_hostPublic = 0;   // this PC's internet address when hosting (mods/on
 void SendTo(Session& s, const std::string& m) {
     std::lock_guard<std::mutex> l(s.sendM);
     hn::Send(s.sock, m.data(), (int)m.size(), 0);
-    fprintf(stderr, "[lobby] #%d <- %s %s\n", s.id, Printable(m.substr(0, 4)).c_str(), Printable(m.substr(12)).c_str());
+    if (m.compare(0, 4, "mau?") != 0 && m.compare(0, 4, "~png") != 0) fprintf(stderr, "[lobby] #%d <- %s %s\n", s.id, Printable(m.substr(0, 4)).c_str(), Printable(m.substr(12)).c_str());
 }
 bool Loopback(uint32_t ip) { return (ip >> 24) == 127; }
 // Where `who` can be reached from `viewer`'s PC: the host's own game shows up as 127.0.0.1 here, so others get
@@ -141,6 +141,16 @@ std::vector<std::string> Answer(const std::shared_ptr<Session>& sp, const std::s
     std::string ip = IpText(s.ip);
     if (cmd == "@dir") return {Pack("@dir", {{"ADDR", "127.0.0.1"}, {"PORT", std::to_string(kLobbyPort)}, {"SESS", std::to_string(1000000000 + rand() % 900000000)},
                                              {"MASK", Hex128()}, {"XIP", ip}})};   // XIP: the player's own internet address, as this server sees it
+    if (cmd == "mau?") {   // the launcher asking who is here (not the game): host first, then everyone logged in
+        std::lock_guard<std::mutex> l(g_m);
+        std::string list, host;
+        for (auto& o : g_sessions) {
+            if (o->Who().empty()) continue;
+            if (Loopback(o->ip) && host.empty()) host = o->Who();
+            list += (list.empty() ? "" : ",") + o->Who();
+        }
+        return {Pack("mau?", {{"HOST", host}, {"PLAYERS", list}})};
+    }
     if (cmd == "@tic" || cmd == "~png") return {};   // no answer expected
     if (cmd == "addr") { std::vector<uint32_t> v; if (f.count("ADDR") && hn::Resolve(f["ADDR"].c_str(), v)) s.lanIp = v[0]; return {}; }
     if (cmd == "skey") return {Pack("skey", {{"SKEY", "$" + Hex128()}})};
@@ -150,6 +160,7 @@ std::vector<std::string> Answer(const std::shared_ptr<Session>& sp, const std::s
     if (cmd == "news") return {Pack("news", {{"BUDDY_SERVER", "127.0.0.1"}, {"BUDDY_PORT", "10899"}, {"EX-ticker", "127.0.0.1,25862,enUS"}, {"EX-telemetry", "127.0.0.1,25863,enUS"}, {"TOSAC_URL", ""}, {"TOSA_URL", ""}, {"TOS_URL", ""}})};
     if (cmd == "auth") {
         s.name = f.count("NAME") ? f["NAME"] : f.count("GTAG") ? f["GTAG"] : s.name;
+        fprintf(stderr, "[lobby] %s is online%s\n", s.name.c_str(), Loopback(s.ip) ? " (this PC)" : (" from " + IpText(s.ip)).c_str());
         if (f.count("MADDR")) s.maddr = f["MADDR"];
         return {Pack("auth", {{"NAME", s.name}, {"ADDR", ip}, {"PERSONAS", s.name}, {"LOC", "enUS"}, {"MAIL", "player@unleashed"}, {"SPAM", "NN"},
                               {"TOS", "1"}, {"SINCE", "2010.01.01-00:00:00"}, {"LAST", "2010.01.01-00:00:00"}})};
@@ -267,7 +278,7 @@ void Serve(int c, uint32_t ip, int id) {
             std::string cmd = buf.substr(0, 4), body = buf.substr(12, len - 12);
             buf.erase(0, len);
             auto f = Parse(body);
-            if (cmd != "~png") fprintf(stderr, "[lobby] #%d -> %s %s\n", id, Printable(cmd).c_str(), Printable(body).c_str());
+            if (cmd != "~png" && cmd != "mau?") fprintf(stderr, "[lobby] #%d -> %s %s\n", id, Printable(cmd).c_str(), Printable(body).c_str());
             for (auto& m : Answer(sp, cmd, f)) SendTo(*sp, m);
         }
         if (bad) break;
@@ -278,6 +289,7 @@ void Serve(int c, uint32_t ip, int id) {
         LeaveGame(*sp);
         for (size_t i = 0; i < g_sessions.size(); i++) if (g_sessions[i] == sp) { g_sessions.erase(g_sessions.begin() + i); break; }
     }
+    if (!sp->Who().empty()) fprintf(stderr, "[lobby] %s left\n", sp->Who().c_str());
     fprintf(stderr, "[lobby] #%d closed\n", id);
     hn::Close(c);
 }
