@@ -73,6 +73,7 @@ static void FillModsControls() {
 static void SaveMods() {
     CreateDirectoryW(ModsDir().c_str(), nullptr);
     int r = (int)SendMessageW(g_mRoster, CB_GETCURSEL, 0, 0);
+    WritePrivateProfileStringW(L"launcher", L"rosterpicked", L"1", IniPath().c_str());
     WriteWord(ModsDir() + L"\\roster.txt", r > 0 && r < (int)g_rosterSets.size() ? Narrow(g_rosterSets[r]) : "original");
     int l = (int)SendMessageW(g_mLines, CB_GETCURSEL, 0, 0);
     WriteWord(ModsDir() + L"\\lines.txt", l == 1 ? "7" : l == 2 ? "full" : "5");

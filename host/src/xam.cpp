@@ -17,8 +17,25 @@ static const uint64_t kPlayerXuid = 0xE000000000000001ull;   // offline XUID
 // second player pressing START on his own pad is signed in at once (the game would otherwise ask for the sign-in UI).
 bool PadConnected(uint32_t user);
 static bool UserIn(uint32_t u) { return u < 4 && PadConnected(u); }
-static std::string UserName(uint32_t u) { return u == 0 ? std::string(kPlayerName) : std::string(kPlayerName) + " " + std::to_string(u + 1); }
-IMP(XamUserGetSigninState) { TRACE(XamUserGetSigninState); ctx.r3.u64 = UserIn(ctx.r3.u32) ? 1 : 0; }   // 1 = signed in locally
+// Online (Xbox Live) mode, being built: mods/online.txt holds the gamertag. Player 1 is then signed in to "Live".
+const std::string& OnlineGamertag() {
+    static const std::string tag = [] {
+        std::string t; if (FILE* f = fopen("mods/online.txt", "r")) { char b[64] = ""; if (fgets(b, sizeof b, f)) t = b; fclose(f); }
+        while (!t.empty() && (t.back() == '\n' || t.back() == '\r' || t.back() == ' ')) t.pop_back();
+        if (t.size() > 15) t.resize(15);
+        if (!t.empty()) fprintf(stderr, "[live] online mode: signed in as %s\n", t.c_str());
+        return t; }();
+    return tag;
+}
+bool OnlineMode() { return !OnlineGamertag().empty(); }
+static uint64_t OnlineXuid() { uint64_t h = 1469598103934665603ull; for (char c : OnlineGamertag()) h = (h ^ (uint8_t)c) * 1099511628211ull; return 0x0009000000000000ull | (h & 0xFFFFFFFFFFFull); }
+static bool UserLive(uint32_t u) { return u == 0 && OnlineMode(); }
+static std::string UserName(uint32_t u) { if (UserLive(u)) return OnlineGamertag(); return u == 0 ? std::string(kPlayerName) : std::string(kPlayerName) + " " + std::to_string(u + 1); }
+IMP(XamUserGetSigninState) {   // 1 = signed in locally, 2 = signed in to Live
+    TRACE(XamUserGetSigninState);
+    uint32_t u = ctx.r3.u32; ctx.r3.u64 = !UserIn(u) ? 0 : UserLive(u) ? 2 : 1;
+    if (OnlineMode()) { static int n = 0; if (n++ < 3) fprintf(stderr, "[live] XamUserGetSigninState(%u) -> %u\n", u, ctx.r3.u32); }
+}
 IMP(XamUserGetName) {   // (user, buffer, size)
     TRACE(XamUserGetName);
     uint32_t u = ctx.r3.u32;
@@ -30,7 +47,7 @@ IMP(XamUserGetXUID) {   // (user, type, pXuid)
     TRACE(XamUserGetXUID);
     uint32_t u = ctx.r3.u32;
     if (!UserIn(u)) { ctx.r3.u64 = X_ERROR_NO_SUCH_USER; return; }
-    if (ctx.r5.u32) WriteU64(ctx.r5.u32, kPlayerXuid + u);
+    if (ctx.r5.u32) WriteU64(ctx.r5.u32, UserLive(u) ? OnlineXuid() : kPlayerXuid + u);
     ctx.r3.u64 = X_ERROR_SUCCESS;
 }
 // X_USER_SIGNIN_INFO: xuid(8), unk(4), signin_state(4), unk(4), unk(4), name[16], ...
@@ -38,10 +55,14 @@ IMP(XamUserGetSigninInfo) {   // (user, flags, info)
     TRACE(XamUserGetSigninInfo);
     uint32_t u = ctx.r3.u32, p = ctx.r5.u32; memset(g_base + p, 0, 0x28);
     if (!UserIn(u)) { ctx.r3.u64 = X_ERROR_NO_SUCH_USER; return; }
-    WriteU64(p, kPlayerXuid + u); WriteU32(p + 0xC, 1); strncpy((char*)g_base + p + 0x18, UserName(u).c_str(), 15);
+    WriteU64(p, UserLive(u) ? OnlineXuid() : kPlayerXuid + u); WriteU32(p + 0xC, UserLive(u) ? 2 : 1); strncpy((char*)g_base + p + 0x18, UserName(u).c_str(), 15);
     ctx.r3.u64 = X_ERROR_SUCCESS;
 }
-IMP(XamUserCheckPrivilege) { TRACE(XamUserCheckPrivilege); if (ctx.r5.u32) WriteU32(ctx.r5.u32, 1); ctx.r3.u64 = 0; }
+IMP(XamUserCheckPrivilege) {
+    TRACE(XamUserCheckPrivilege);
+    if (OnlineMode()) { static int n = 0; if (n++ < 10) fprintf(stderr, "[live] XamUserCheckPrivilege(user %u, privilege %u)\n", ctx.r3.u32, ctx.r4.u32); }
+    if (ctx.r5.u32) WriteU32(ctx.r5.u32, 1); ctx.r3.u64 = 0;
+}
 IMP(XamUserAreUsersFriends) { TRACE(XamUserAreUsersFriends); if (ctx.r6.u32) WriteU32(ctx.r6.u32, 0); ctx.r3.u64 = 0; }
 
 // ---- notifications: listener handles the game polls; the sign-in UI posts its system notifications here
@@ -59,13 +80,20 @@ IMP(XamNotifyCreateListener) {
     uint32_t o = KAllocDispatcher(kEventNotification, 0, 0x10);
     auto* k = new KObject{KObject::Dispatcher}; k->guestPtr = o;
     ctx.r3.u64 = KNewHandle(k);
-    std::lock_guard<std::mutex> l(g_notesM);
-    g_listeners.push_back(ctx.r3.u32);
+    {
+        std::lock_guard<std::mutex> l(g_notesM);
+        g_listeners.push_back(ctx.r3.u32);
+    }
+    if (OnlineMode()) {   // Live is up: XN_LIVE_LINK_STATE_CHANGED (up) and XN_LIVE_CONNECTIONCHANGED (logon connection established)
+        fprintf(stderr, "[live] listener %08X (areas %08X%08X): posting Live connected\n", ctx.r3.u32, ctx.r4.u32, ctx.r5.u32);
+        PostNote(0x00020003, 1); PostNote(0x00020001, 0x01510000);
+    }
 }
 IMP(XNotifyGetNext) {   // (handle, id filter (0 = any), pId, pParam) -> TRUE when one was taken
     TRACE(XNotifyGetNext);
     std::lock_guard<std::mutex> l(g_notesM);
     uint32_t filter = ctx.r4.u32;
+    if (OnlineMode()) { static std::vector<uint32_t> seen; bool k = false; for (auto x : seen) k |= x == filter; if (!k && seen.size() < 32) { seen.push_back(filter); fprintf(stderr, "[live] XNotifyGetNext filter %08X\n", filter); } }
     for (size_t i = 0; i < g_notes.size(); i++) {
         if (filter && g_notes[i].first != filter) continue;
         if (ctx.r5.u32) WriteU32(ctx.r5.u32, g_notes[i].first);
@@ -108,17 +136,23 @@ void CompleteOverlapped(uint32_t ov, uint32_t result, uint32_t length, uint32_t 
     if (uint32_t ev = ReadU32(ov + 0xC)) KSetEventHandle(ev, true);
 }
 
+bool LiveServiceAddr(uint32_t serviceId, uint32_t& ip, uint16_t& port);
 // ---- messages to system apps (XLiveBase 0xFC, XMP music player 0xFA, ...)
 IMP(XMsgInProcessCall) {   // (app, message, arg1, arg2)
     TRACE(XMsgInProcessCall);
     uint32_t app = ctx.r3.u32, msg = ctx.r4.u32, a1 = ctx.r5.u32;
     if (app == 0xFC && msg == 0x58004 && a1) WriteU32(a1, 1);   // XLiveBaseGetLogonId
-    if (g_trace) fprintf(stderr, "[xam] XMsgInProcessCall app %X msg %X\n", app, msg);
+    if (app == 0xFC && msg == 0x58006 && a1) WriteU32(a1, 1);   // NAT type: open
+    if (app == 0xFC && msg == 0x58007 && OnlineMode() && ctx.r6.u32) {   // XOnlineGetServiceInfo(id, XONLINE_SERVICE_INFO*): id, ip, port
+        uint32_t ip; uint16_t port; LiveServiceAddr(a1, ip, port);
+        uint32_t p = ctx.r6.u32; memset(g_base + p, 0, 12); WriteU32(p, a1); WriteU32(p + 4, ip); g_base[p + 8] = port >> 8; g_base[p + 9] = port & 0xFF;
+    }
+    if (g_trace || OnlineMode()) fprintf(stderr, "[live] XMsgInProcessCall app %X msg %X a1 %08X a2 %08X\n", app, msg, a1, ctx.r6.u32);
     ctx.r3.u64 = 0;
 }
 static void StartIORequest(PPCContext& ctx, const char* name) {   // (app, message, overlapped*, buffer, length, ...)
     uint32_t app = ctx.r3.u32, msg = ctx.r4.u32, ov = ctx.r5.u32;
-    if (g_trace) fprintf(stderr, "[xam] %s app %X msg %X\n", name, app, msg);
+    if (g_trace || OnlineMode()) fprintf(stderr, "[live] %s app %X msg %X buf %08X len %X\n", name, app, msg, ctx.r6.u32, ctx.r7.u32);
     if (ov) { CompleteOverlapped(ov, 0, 0); ctx.r3.u64 = X_ERROR_IO_PENDING; return; }
     ctx.r3.u64 = 0;
 }

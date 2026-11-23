@@ -147,7 +147,26 @@ static bool Install() {
     Status(L"Unpacking Madden Arcade Unleashed files", 2);
     bc::Mkdirs(dir + L"\\_cache");
     std::wstring packZip = dir + L"\\_cache\\pack.zip";
-    if (!WriteResourceTo(packZip) || !bc::InstallPack(dir, packZip)) return Fail(L"could not unpack the program files");
+    // the newest version from the project page when online (so an older copy of this setup still installs the
+    // latest fixes, rosters and mods), else the one built into this program
+    bool latest = false;
+    {
+        wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
+        std::wstring mf = std::wstring(tmp) + L"mau_setup_manifest.txt";
+        bc::Manifest m;
+        if (bc::Download(std::wstring(bc::kRepoRaw) + L"update/manifest.txt", mf, sink, L"", 2, 2) && bc::ParseManifest(bc::ReadText(mf), m)) {
+            Status(L"Downloading the newest version (" + bc::W(m.version) + L")", 2);
+            if (bc::Download(std::wstring(bc::kRepoRaw) + bc::W(m.pack), packZip, sink, L"Downloading the newest version", 2, 4) &&
+                bc::HashFile(packZip, BCRYPT_SHA256_ALGORITHM) == m.sha256 && bc::InstallPack(dir, packZip)) {
+                latest = true; Log(L"Installing the newest version, " + bc::W(m.version) + L".\n");
+            }
+        }
+        DeleteFileW(mf.c_str());
+    }
+    if (!latest) {
+        Log(L"Could not get the newest version - installing the one in this setup (the launcher updates it when you are online).\n");
+        if (!WriteResourceTo(packZip) || !bc::InstallPack(dir, packZip)) return Fail(L"could not unpack the program files");
+    }
     DeleteFileW(packZip.c_str());
 
     // 2. your game

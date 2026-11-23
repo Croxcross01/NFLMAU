@@ -106,6 +106,16 @@ static void StartAutoUpdate() {
     g_version = bc::W(bc::Trim(bc::ReadText(g_exeDir + L"\\version.txt")));
     g_versionLabel = g_version;
     if (!g_version.empty()) bc::CopyPackMods(g_exeDir);   // repair: the installed version's roster sets / mod data are present
+    // Installs from an older setup were left on the original roster: move them to the current one once (a roster
+    // picked on the Mods page is kept - saving there sets rosterpicked).
+    if (!g_version.empty() && !GetPrivateProfileIntW(L"launcher", L"rosterpicked", 0, IniPath().c_str())) {
+        std::string cur = bc::Trim(bc::ReadText(g_exeDir + L"\\mods\\roster.txt"));
+        if ((cur.empty() || cur == "original") && bc::IsFile(g_exeDir + L"\\mods\\rosters\\2027\\roster.tsv")) {
+            bc::WriteText(g_exeDir + L"\\mods\\roster.txt", "2027\n");
+            Log(L"Roster set to the 2027 roster (change it on the Mods page).\n");
+        }
+        WritePrivateProfileStringW(L"launcher", L"rosterpicked", L"1", IniPath().c_str());
+    }
     ShowUpdatedBox();
     CheckForUpdate();
 }

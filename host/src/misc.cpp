@@ -217,10 +217,6 @@ IMP(NetDll_WSAStartup)  { TRACE(NetDll_WSAStartup); if (ctx.r5.u32) { memset(g_b
 IMP(NetDll_WSACleanup)  { TRACE(NetDll_WSACleanup); ctx.r3.u64 = 0; }
 IMP(NetDll_XNetStartup) { TRACE(NetDll_XNetStartup); ctx.r3.u64 = 0; }
 IMP(NetDll_XNetCleanup) { TRACE(NetDll_XNetCleanup); ctx.r3.u64 = 0; }
-IMP(NetDll_XNetGetEthernetLinkStatus) { TRACE(NetDll_XNetGetEthernetLinkStatus); ctx.r3.u64 = 0; }   // no cable
-IMP(NetDll_XNetGetTitleXnAddr) { TRACE(NetDll_XNetGetTitleXnAddr); if (ctx.r4.u32) memset(g_base + ctx.r4.u32, 0, 0x24); ctx.r3.u64 = 0x1; }   // XNET_GET_XNADDR_PENDING
-IMP(NetDll_WSAGetLastError) { TRACE(NetDll_WSAGetLastError); ctx.r3.u64 = 10050; }   // WSAENETDOWN
-IMP(NetDll_socket) { TRACE(NetDll_socket); ctx.r3.u64 = 0xFFFFFFFF; }
 IMP(NetDll_XNetRandom) { TRACE(NetDll_XNetRandom); for (uint32_t i = 0; i < ctx.r5.u32; i++) g_base[ctx.r4.u32 + i] = (uint8_t)rand(); ctx.r3.u64 = 0; }
 
 // ---- WSA events (the network threads block on these; nothing signals them while offline)

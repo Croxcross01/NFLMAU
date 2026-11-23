@@ -1,5 +1,5 @@
-version=1.0.14
-pack=update/pack-1.0.14.zip
-sha256=a35ef7f83efbc7c2d59ae8cb122e85941b993c37b501deccf60724e240c7173a
+version=1.0.15
+pack=update/pack-1.0.15.zip
+sha256=de02839491e5925c0e3a6d7a637100e38a1666c65e3531b8e2308639ec786d9f
 rebuild=0
-notes=Update notifications: a box tells you when an update is installing and when it's done; the launcher now checks every 5 minutes
+notes=Older installs move to the current roster; setup always installs the newest version; groundwork for online play
