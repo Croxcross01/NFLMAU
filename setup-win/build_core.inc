@@ -10,7 +10,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <shlobj.h>
-#include <urlmon.h>
+#include <winhttp.h>
 #include <bcrypt.h>
 #include <string>
 #include <vector>
@@ -19,6 +19,8 @@
 #include <functional>
 #include <algorithm>
 #include <cstdio>
+
+#include "zipread.inc"
 
 namespace bc {
 
@@ -87,35 +89,52 @@ inline DWORD RunWait(const std::wstring& cmd, const std::wstring& cwd, Sink* sin
     return code;
 }
 
-inline bool Unzip(const std::wstring& zip, const std::wstring& dir) {   // tar.exe is part of Windows 10 / 11
+inline bool Unzip(const std::wstring& zip, const std::wstring& dir) {   // unpacked here, no outside tool
     Mkdirs(dir);
-    wchar_t sys[MAX_PATH]; GetSystemDirectoryW(sys, MAX_PATH);
-    return RunWait(L"\"" + std::wstring(sys) + L"\\tar.exe\" -xf \"" + zip + L"\" -C \"" + dir + L"\"", L"", nullptr, nullptr) == 0;
+    return zr::ExtractZip(zip, dir);
 }
 
-struct DlProgress : IBindStatusCallback {
-    Sink* sink; std::wstring label; int lo, hi, last = -1;
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** p) override { *p = nullptr; return E_NOINTERFACE; }
-    ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
-    ULONG STDMETHODCALLTYPE Release() override { return 1; }
-    HRESULT STDMETHODCALLTYPE OnStartBinding(DWORD, IBinding*) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE GetPriority(LONG*) override { return E_NOTIMPL; }
-    HRESULT STDMETHODCALLTYPE OnLowResource(DWORD) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnProgress(ULONG done, ULONG total, ULONG, LPCWSTR) override {
-        if (total && sink && sink->status) { int pct = lo + (int)((double)(hi - lo) * done / total); if (pct != last) { last = pct; sink->status(label + L" " + std::to_wstring(done >> 20) + L" / " + std::to_wstring(total >> 20) + L" MB", pct); } }
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE OnStopBinding(HRESULT, LPCWSTR) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE GetBindInfo(DWORD* f, BINDINFO*) override { *f = BINDF_GETNEWESTVERSION | BINDF_NOWRITECACHE | BINDF_PRAGMA_NO_CACHE; return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnDataAvailable(DWORD, DWORD, FORMATETC*, STGMEDIUM*) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnObjectAvailable(REFIID, IUnknown*) override { return S_OK; }
-};
+// Downloads over HTTPS with WinHTTP (follows redirects, uses the system proxy), showing progress lo..hi %.
 inline bool Download(const std::wstring& url, const std::wstring& dest, Sink& s, const std::wstring& label, int lo, int hi) {
-    DlProgress cb; cb.sink = &s; cb.label = label; cb.lo = lo; cb.hi = hi;
     DeleteFileW(dest.c_str());
-    std::wstring u = url + (url.find(L'?') == std::wstring::npos ? L"?t=" : L"&t=") + std::to_wstring(GetTickCount64());   // no stale caches
-    if (url.rfind(L"https://github.com/", 0) == 0) u = url;   // release downloads: plain URL
-    return URLDownloadToFileW(nullptr, u.c_str(), dest.c_str(), 0, &cb) == S_OK && IsFile(dest);
+    std::wstring u = url;
+    if (url.rfind(L"https://github.com/", 0) != 0) u += (url.find(L'?') == std::wstring::npos ? L"?t=" : L"&t=") + std::to_wstring(GetTickCount64());   // no stale caches
+    URL_COMPONENTS c{}; c.dwStructSize = sizeof c;
+    wchar_t host[256] = L"", path[2048] = L"";
+    c.lpszHostName = host; c.dwHostNameLength = 256; c.lpszUrlPath = path; c.dwUrlPathLength = 2048; c.dwSchemeLength = (DWORD)-1;
+    if (!WinHttpCrackUrl(u.c_str(), 0, 0, &c)) return false;
+    std::wstring full = std::wstring(path) + (c.lpszExtraInfo && c.dwExtraInfoLength ? std::wstring(c.lpszExtraInfo, c.dwExtraInfoLength) : L"");
+    HINTERNET ses = WinHttpOpen(L"MaddenArcadeUnleashed/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!ses) ses = WinHttpOpen(L"MaddenArcadeUnleashed/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!ses) return false;
+    bool ok = false;
+    HINTERNET con = WinHttpConnect(ses, host, c.nPort, 0);
+    HINTERNET req = con ? WinHttpOpenRequest(con, L"GET", full.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, c.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0) : nullptr;
+    if (req && WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(req, nullptr)) {
+        DWORD status = 0, len = sizeof status;
+        WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &len, WINHTTP_NO_HEADER_INDEX);
+        wchar_t clen[32] = L""; DWORD cl = sizeof clen; uint64_t total = 0;
+        if (WinHttpQueryHeaders(req, WINHTTP_QUERY_CONTENT_LENGTH, WINHTTP_HEADER_NAME_BY_INDEX, clen, &cl, WINHTTP_NO_HEADER_INDEX)) total = _wtoi64(clen);
+        HANDLE f = status == 200 ? CreateFileW(dest.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr) : INVALID_HANDLE_VALUE;
+        if (f != INVALID_HANDLE_VALUE) {
+            ok = true; uint64_t done = 0; int last = -1; std::vector<char> buf(1 << 16);
+            for (;;) {
+                DWORD got = 0;
+                if (!WinHttpReadData(req, buf.data(), (DWORD)buf.size(), &got)) { ok = false; break; }
+                if (!got) break;
+                DWORD w = 0; if (!WriteFile(f, buf.data(), got, &w, nullptr) || w != got) { ok = false; break; }
+                done += got;
+                if (total && s.status && !label.empty()) { int pct = lo + (int)((double)(hi - lo) * done / total); if (pct != last) { last = pct; s.status(label + L" " + std::to_wstring(done >> 20) + L" / " + std::to_wstring(total >> 20) + L" MB", pct); } }
+            }
+            CloseHandle(f);
+            if (total && done != total) ok = false;
+            if (!ok) DeleteFileW(dest.c_str());
+        }
+    }
+    if (req) WinHttpCloseHandle(req);
+    if (con) WinHttpCloseHandle(con);
+    WinHttpCloseHandle(ses);
+    return ok && IsFile(dest);
 }
 
 inline std::wstring ToolDir(const std::wstring& install) { return install + L"\\_tools\\" + kToolDir; }

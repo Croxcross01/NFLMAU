@@ -108,12 +108,6 @@ static bool ExtractPackage(const std::wstring& pkg, const std::wstring& outDir) 
 }
 
 
-static bool WriteResourceTo(const std::wstring& path) {   // the runtime pack (zip) built into this program
-    HRSRC r = FindResourceW(nullptr, L"PACK", RT_RCDATA); if (!r) return false;
-    HGLOBAL g = LoadResource(nullptr, r); DWORD n = SizeofResource(nullptr, r); const void* p = LockResource(g);
-    FILE* f = _wfopen(path.c_str(), L"wb"); if (!f) return false;
-    bool ok = fwrite(p, 1, n, f) == n; fclose(f); return ok;
-}
 
 // ---------------------------------------------------------------- choices from the wizard
 struct Choices { int quality = 1; bool fullscreen = true; int lines = 0; bool cpuBook = true, extraDb = true, paFix = true, icons = true, picker = true, shortcut = true; } g_ch;
@@ -147,8 +141,8 @@ static bool Install() {
     Status(L"Unpacking Madden Arcade Unleashed files", 2);
     bc::Mkdirs(dir + L"\\_cache");
     std::wstring packZip = dir + L"\\_cache\\pack.zip";
-    // the newest version from the project page when online (so an older copy of this setup still installs the
-    // latest fixes, rosters and mods), else the one built into this program
+    // the newest version from the project page (an older copy of this setup still installs the latest fixes,
+    // rosters and mods); nothing is built into this program
     bool latest = false;
     {
         wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
@@ -163,10 +157,7 @@ static bool Install() {
         }
         DeleteFileW(mf.c_str());
     }
-    if (!latest) {
-        Log(L"Could not get the newest version - installing the one in this setup (the launcher updates it when you are online).\n");
-        if (!WriteResourceTo(packZip) || !bc::InstallPack(dir, packZip)) return Fail(L"could not unpack the program files");
-    }
+    if (!latest) return Fail(L"could not download the program files - check your internet connection and try again");
     DeleteFileW(packZip.c_str());
 
     // 2. your game

@@ -1,5 +1,5 @@
-version=1.0.18
-pack=update/pack-1.0.18.zip
-sha256=622433a54879875bd9d31c4c6195eda38003c08c5796dadbe20462eec5ea29fd
+version=1.0.19
+pack=update/pack-1.0.19.zip
+sha256=0be180ca0af122bb3fead4eb449aaa920551495206992d4fa023373b6f95c086
 rebuild=0
-notes=Program details (publisher, version) added to every .exe so antivirus can identify them
+notes=Setup and launcher no longer start outside tools to unpack or download, and the setup carries no built-in program files
