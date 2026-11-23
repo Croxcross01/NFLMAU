@@ -12,7 +12,8 @@ static std::wstring g_recRenderer = L"vulkan", g_recQuality = L"medium";
 
 static HWND g_sGpu, g_sRenderer, g_sQuality, g_sScale, g_sAniso, g_sMode, g_sWinSize, g_sVsync, g_sFps, g_sDof, g_sRec, g_sSaved, g_sNote, g_sDevice;
 static std::vector<HWND> g_settingsCtl;
-enum { ID_S_RENDERER = 300, ID_S_QUALITY, ID_S_SCALE, ID_S_ANISO, ID_S_MODE, ID_S_WINSIZE, ID_S_VSYNC, ID_S_FPS, ID_S_DOF, ID_S_RECOMMEND, ID_S_SAVE, ID_S_DEVICE, WM_GPU_DETECTED = WM_APP + 20 };
+static HWND g_sGtagLabel, g_sGtag, g_sOnline, g_sGtInfo;
+enum { ID_S_RENDERER = 300, ID_S_QUALITY, ID_S_SCALE, ID_S_ANISO, ID_S_MODE, ID_S_WINSIZE, ID_S_VSYNC, ID_S_FPS, ID_S_DOF, ID_S_RECOMMEND, ID_S_SAVE, ID_S_DEVICE, ID_S_GTAG, ID_S_ONLINE, ID_S_GTSAVE, WM_GPU_DETECTED = WM_APP + 20 };
 static const wchar_t* kQualities[] = {L"Low", L"Medium", L"High", L"Custom"};
 static const wchar_t* kQualityKeys[] = {L"low", L"medium", L"high", L"custom"};
 static const wchar_t* kScales[] = {L"1280 x 720 - native (1x)", L"2560 x 1440 - 2K (2x)", L"3840 x 2160 - 4K (3x)"};
@@ -156,6 +157,77 @@ static HWND MakeLabel(HWND p, const wchar_t* t, HFONT f) { HWND h = CreateWindow
 static HWND MakeCombo(HWND p, int id, HFONT f) { HWND h = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VSCROLL | CBS_DROPDOWNLIST, 0, 0, 0, 300, p, (HMENU)(INT_PTR)id, nullptr, nullptr); SendMessageW(h, WM_SETFONT, (WPARAM)f, TRUE); g_settingsCtl.push_back(h); return h; }
 static HWND MakeButton(HWND p, const wchar_t* t, int id, HFONT f, DWORD style = 0) { HWND h = CreateWindowW(L"BUTTON", t, WS_CHILD | style, 0, 0, 0, 0, p, (HMENU)(INT_PTR)id, nullptr, nullptr); SendMessageW(h, WM_SETFONT, (WPARAM)f, TRUE); g_settingsCtl.push_back(h); return h; }
 
+
+// ---- Online profile (Xbox Live mode). Your gamertag and online id live in mods/online.txt (gamertag, then
+// xuid=...), which the game reads at start; without that file the game stays offline. A gamertag is 1-15 letters,
+// digits or spaces and starts with a letter. After the first one it can be changed once every 7 days.
+static constexpr int kGtagChangeDays = 7;
+static std::wstring OnlineFile() { return g_exeDir + L"\\mods\\online.txt"; }
+static std::wstring LauncherIni() { return g_exeDir + L"\\launcher.ini"; }
+static std::wstring OnlineGet(const wchar_t* k) { wchar_t b[128] = L""; GetPrivateProfileStringW(L"online", k, L"", b, 128, LauncherIni().c_str()); return b; }
+static void OnlineSet(const wchar_t* k, const std::wstring& v) { WritePrivateProfileStringW(L"online", k, v.c_str(), LauncherIni().c_str()); }
+static bool GamertagOk(const std::wstring& t, std::wstring& why) {
+    if (t.empty() || t.size() > 15) { why = L"A gamertag is 1 to 15 characters."; return false; }
+    if (!iswalpha(t[0]) || t[0] > 127) { why = L"A gamertag starts with a letter (A-Z)."; return false; }
+    for (wchar_t c : t) if (c > 127 || !(iswalnum(c) || c == L' ')) { why = L"Use only letters, numbers and spaces."; return false; }
+    if (t.back() == L' ' || t.find(L"  ") != std::wstring::npos) { why = L"No spaces at the end or two in a row."; return false; }
+    return true;
+}
+static uint64_t NowDays() { FILETIME ft; GetSystemTimeAsFileTime(&ft); return (((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 864000000000ull; }
+static std::string Utf8(const std::wstring& w) { std::string s; for (wchar_t c : w) s += (char)(c < 128 ? c : '?'); return s; }
+static void WriteOnlineFile() {   // what the game reads; written when online is on, removed when it is off
+    std::wstring tag = OnlineGet(L"gamertag"), xuid = OnlineGet(L"xuid");
+    if (OnlineGet(L"enabled") != L"1" || tag.empty()) { DeleteFileW(OnlineFile().c_str()); return; }
+    CreateDirectoryW((g_exeDir + L"\\mods").c_str(), nullptr);
+    if (FILE* f = _wfopen(OnlineFile().c_str(), L"wb")) { fprintf(f, "%s\nxuid=%s\n", Utf8(tag).c_str(), Utf8(xuid).c_str()); fclose(f); }
+}
+static void ShowOnlineInfo(const std::wstring& extra = L"") {
+    std::wstring tag = OnlineGet(L"gamertag"), info;
+    if (tag.empty()) info = L"Pick a gamertag to play online. You can change it later (once every 7 days).";
+    else {
+        uint64_t last = _wtoi64(OnlineGet(L"changed").c_str()), next = last + kGtagChangeDays;
+        info = L"Signed in as " + tag + (OnlineGet(L"enabled") == L"1" ? L" - online play is on." : L" - online play is off.");
+        if (last && NowDays() < next) info += L" Next name change in " + std::to_wstring(next - NowDays()) + L" day(s).";
+    }
+    SetWindowTextW(g_sGtInfo, extra.empty() ? info.c_str() : (extra + L" " + info).c_str());
+}
+static void FillOnlineControls() {
+    // an install that already had mods/online.txt (online testing) keeps that gamertag
+    if (OnlineGet(L"gamertag").empty()) {
+        std::string t; if (FILE* f = _wfopen(OnlineFile().c_str(), L"rb")) { char b[64] = ""; if (fgets(b, sizeof b, f)) t = b; fclose(f); }
+        while (!t.empty() && (t.back() == '\n' || t.back() == '\r' || t.back() == ' ')) t.pop_back();
+        if (!t.empty()) { OnlineSet(L"gamertag", std::wstring(t.begin(), t.end())); OnlineSet(L"enabled", L"1"); }
+    }
+    if (OnlineGet(L"xuid").empty()) {   // the online id stays the same when the gamertag changes
+        uint64_t r = 0; for (int i = 0; i < 4; i++) r = r << 16 ^ (uint64_t)(rand() & 0xFFFF) ^ GetTickCount64();
+        wchar_t b[32]; swprintf(b, 32, L"0009%012llX", (unsigned long long)(r & 0xFFFFFFFFFFFFull)); OnlineSet(L"xuid", b);
+    }
+    SetWindowTextW(g_sGtag, OnlineGet(L"gamertag").c_str());
+    SendMessageW(g_sOnline, BM_SETCHECK, OnlineGet(L"enabled") == L"1" ? BST_CHECKED : BST_UNCHECKED, 0);
+    WriteOnlineFile();
+    ShowOnlineInfo();
+}
+static void SaveOnline() {
+    wchar_t b[64] = L""; GetWindowTextW(g_sGtag, b, 64);
+    std::wstring tag = b; while (!tag.empty() && tag.front() == L' ') tag.erase(0, 1); while (!tag.empty() && tag.back() == L' ') tag.pop_back();
+    bool on = SendMessageW(g_sOnline, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    std::wstring old = OnlineGet(L"gamertag"), why;
+    if (tag != old) {
+        if (!GamertagOk(tag, why)) { SetWindowTextW(g_sGtag, old.c_str()); ShowOnlineInfo(why); return; }
+        uint64_t last = _wtoi64(OnlineGet(L"changed").c_str());
+        if (!old.empty() && last && NowDays() < last + kGtagChangeDays) {
+            SetWindowTextW(g_sGtag, old.c_str());
+            ShowOnlineInfo(L"You changed your gamertag recently - try again in " + std::to_wstring(last + kGtagChangeDays - NowDays()) + L" day(s).");
+            return;
+        }
+        if (!old.empty()) OnlineSet(L"changed", std::to_wstring(NowDays()));
+        OnlineSet(L"gamertag", tag);
+    }
+    if (on && tag.empty()) { ShowOnlineInfo(L"Pick a gamertag first."); SendMessageW(g_sOnline, BM_SETCHECK, BST_UNCHECKED, 0); return; }
+    OnlineSet(L"enabled", on ? L"1" : L"0");
+    WriteOnlineFile();
+    ShowOnlineInfo(L"Saved.");
+}
 struct Row { HWND label, ctl; };
 static std::vector<Row> g_rows;
 static void CreateSettingsPage(HWND hw, HFONT f) {
@@ -174,6 +246,12 @@ static void CreateSettingsPage(HWND hw, HFONT f) {
     MakeButton(hw, L"Use recommended", ID_S_RECOMMEND, f);
     MakeButton(hw, L"Save", ID_S_SAVE, f, BS_DEFPUSHBUTTON);
     g_sSaved = MakeLabel(hw, L"", f);
+    g_sGtagLabel = MakeLabel(hw, L"Online gamertag", f);
+    g_sGtag = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 0, 0, hw, (HMENU)(INT_PTR)ID_S_GTAG, nullptr, nullptr);
+    SendMessageW(g_sGtag, WM_SETFONT, (WPARAM)f, TRUE); SendMessageW(g_sGtag, EM_LIMITTEXT, 15, 0); g_settingsCtl.push_back(g_sGtag);
+    g_sOnline = MakeButton(hw, L"Play online (Xbox Live)", ID_S_ONLINE, f, BS_AUTOCHECKBOX);
+    MakeButton(hw, L"Save", ID_S_GTSAVE, f);
+    g_sGtInfo = MakeLabel(hw, L"", f);
     g_sNote = MakeLabel(hw, L"Internal resolution is what the game renders at before it is scaled to your screen: 2K and 4K make the picture sharper and need "
                             L"a stronger GPU. Alt+Enter or F11 switches fullscreen while playing. (The in-game picture itself is still being built.)", f);
 }
@@ -181,13 +259,18 @@ static void LayoutSettingsPage(int x, int y, int right, int bottom) {
     int cw = std::min(460, right - x - 200);
     MoveWindow(g_sGpu, x, y, right - x, 20, TRUE); y += 22;
     MoveWindow(g_sRec, x, y, right - x, 20, TRUE); y += 34;
-    for (auto& r : g_rows) { MoveWindow(r.label, x, y + 5, 160, 20, TRUE); MoveWindow(r.ctl, x + 180, y, cw, 300, TRUE); y += 36; }
+    for (auto& r : g_rows) { MoveWindow(r.label, x, y + 5, 160, 20, TRUE); MoveWindow(r.ctl, x + 180, y, cw, 300, TRUE); y += 33; }
     MoveWindow(g_sVsync, x + 180, y, 320, 24, TRUE); y += 28;
     MoveWindow(g_sFps, x + 180, y, 320, 24, TRUE); y += 28;
     MoveWindow(g_sDof, x + 180, y, 360, 24, TRUE); y += 38;
     MoveWindow(GetDlgItem(g_wnd, ID_S_RECOMMEND), x + 180, y, 170, 34, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_S_SAVE), x + 362, y, 110, 34, TRUE);
-    MoveWindow(g_sSaved, x + 486, y + 7, 260, 20, TRUE); y += 48;
+    MoveWindow(g_sSaved, x + 486, y + 7, 260, 20, TRUE); y += 46;
+    MoveWindow(g_sGtagLabel, x, y + 5, 160, 20, TRUE);
+    MoveWindow(g_sGtag, x + 180, y, 200, 28, TRUE);
+    MoveWindow(g_sOnline, x + 396, y + 2, 220, 24, TRUE);
+    MoveWindow(GetDlgItem(g_wnd, ID_S_GTSAVE), x + 626, y - 1, 90, 30, TRUE); y += 34;
+    MoveWindow(g_sGtInfo, x + 180, y, right - x - 180, 20, TRUE); y += 30;
     MoveWindow(g_sNote, x, y, right - x, std::max(40, bottom - y), TRUE);
 }
 static void ShowSettingsPage(bool show) { for (HWND c : g_settingsCtl) ShowWindow(c, show ? SW_SHOW : SW_HIDE); }
@@ -198,6 +281,8 @@ static bool SettingsCommand(WORD id, WORD code) {
         DeleteFileW(SettingsPath().c_str()); FillSettingsControls(); SaveSettings(true); SetWindowTextW(g_sSaved, L"Recommended settings applied.");
         return true; }
     case ID_S_SAVE: SaveSettings(); return true;
+    case ID_S_GTSAVE: SaveOnline(); return true;
+    case ID_S_GTAG: case ID_S_ONLINE: return true;
     case ID_S_RENDERER: case ID_S_SCALE: case ID_S_ANISO: case ID_S_MODE: case ID_S_WINSIZE: case ID_S_VSYNC: case ID_S_FPS: case ID_S_DOF: case ID_S_DEVICE:
         SetWindowTextW(g_sSaved, L""); return true;
     }

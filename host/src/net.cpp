@@ -43,6 +43,7 @@ void WriteAddr(uint32_t a, uint32_t lenPtr, uint32_t ip, uint16_t port) {
 // ---- where the game's Live services are (XOnlineGetServiceInfo). mods/online_server.txt: "host port"; without it a
 // stand-in on this PC (127.0.0.1:42127) just records what the game sends.
 static std::atomic<bool> g_standIn{false};
+void StartLocalLobby();   // lobby.cpp
 static void StandInServer(uint16_t port) {
     int ls = hn::Socket(2, 1, 6);
     if (ls < 0 || hn::Bind(ls, 0x7F000001, port) < 0 || hn::Listen(ls, 8) < 0) { fprintf(stderr, "[net] stand-in server: could not listen on %u\n", port); return; }
@@ -66,7 +67,10 @@ bool LiveServiceAddr(uint32_t serviceId, uint32_t& ip, uint16_t& port) {
         if (FILE* f = fopen("mods/online_server.txt", "r")) { if (fscanf(f, "%255s %u", host, &p) != 2) host[0] = 0; fclose(f); }
         std::vector<uint32_t> ips;
         if (host[0] && p && hn::Resolve(host, ips)) { sip = ips[0]; sport = (uint16_t)p; }
-        else { sip = 0x7F000001; sport = 42127; if (!g_standIn.exchange(true)) std::thread(StandInServer, sport).detach(); }
+        else {   // the game connects to the service address on its own port (25860 seen), so listen on both
+            sip = 0x7F000001; sport = 42127;
+            if (!g_standIn.exchange(true)) StartLocalLobby();
+        }
         fprintf(stderr, "[net] Live services at %s:%u\n", Ip(sip).c_str(), sport);
         return true; }();
     (void)once;
@@ -236,3 +240,73 @@ IMP(NetDll_XNetDnsLookup) {
     ctx.r3.u64 = 0;
 }
 IMP(NetDll_XNetDnsRelease) { TRACE(NetDll_XNetDnsRelease); ctx.r3.u64 = 0; }
+
+// ---- QoS: the "how good is the connection" probes. Answered at once: reached, 30 ms, 10 Mbit/s both ways.
+// XNQOS: count(4) pending(4) then per target 24 bytes: flags(1: 1 complete, 2 contacted) -(1) probesSent(2)
+// probesReceived(2) dataLength(2) data*(4) rttMin(2) rttMedian(2) upBits(4) downBits(4)
+static uint32_t StackArg(PPCContext& ctx, int i) { return ReadU32(ctx.r1.u32 + 0x54 + 8 * (i - 8)); }
+static uint32_t MakeQos(uint32_t n) {
+    if (n < 1) n = 1;
+    uint32_t q = GuestAlloc(8 + 24 * n);
+    WriteU32(q, n); WriteU32(q + 4, 0);
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t e = q + 8 + 24 * i;
+        g_base[e] = 0x03; W16(e + 2, 4); W16(e + 4, 4); W16(e + 12, 30); W16(e + 14, 30); WriteU32(e + 16, 10000000); WriteU32(e + 20, 10000000);
+    }
+    return q;
+}
+IMP(NetDll_XNetQosServiceLookup) {   // (caller, flags, event, XNQOS**)
+    TRACE(NetDll_XNetQosServiceLookup);
+    if (ctx.r6.u32) WriteU32(ctx.r6.u32, MakeQos(1));
+    if (ctx.r5.u32) KSetEventHandle(ctx.r5.u32, true);
+    ctx.r3.u64 = 0;
+}
+// XNetQosLookup(caller, cxna, xnaddrs, xnkids, xnkeys, cina, inas, serviceIds, probes, bits, flags, event, XNQOS**)
+IMP(NetDll_XNetQosLookup) {
+    TRACE(NetDll_XNetQosLookup);
+    uint32_t n = ctx.r4.u32 + ctx.r8.u32, ev = StackArg(ctx, 11), out = StackArg(ctx, 12);
+    if (out) WriteU32(out, MakeQos(n));
+    if (ev) KSetEventHandle(ev, true);
+    ctx.r3.u64 = 0;
+}
+IMP(NetDll_XNetQosListen) { TRACE(NetDll_XNetQosListen); ctx.r3.u64 = 0; }
+IMP(NetDll_XNetQosRelease) { TRACE(NetDll_XNetQosRelease); ctx.r3.u64 = 0; }
+IMP(XNetLogonGetTitleID) { TRACE(XNetLogonGetTitleID); ctx.r3.u64 = 0x584109ED; }   // this game's title ID
+IMP(XNetLogonGetMachineID) { TRACE(XNetLogonGetMachineID); if (ctx.r3.u32) WriteU64(ctx.r3.u32, 0xFA00000012345678ull); ctx.r3.u64 = 0; }
+
+// ---- the game's online log (EA's online SDK writes its progress through sub_88F43878(logger, level, format, ...)).
+// Retail builds throw the text away; while online play is being built it goes to our log.
+extern "C" PPC_FUNC(__imp__sub_88F43878);
+static std::string GuestFormat(PPCContext& ctx, uint32_t fmt, int firstArg) {
+    auto arg = [&](int n) -> uint64_t {   // n-th argument (0 = r3); r3..r10, then the caller's parameter area
+        if (n <= 7) { const PPCRegister* r[] = {&ctx.r3, &ctx.r4, &ctx.r5, &ctx.r6, &ctx.r7, &ctx.r8, &ctx.r9, &ctx.r10}; return r[n]->u64; }
+        return ReadU64(ctx.r1.u32 + 16 + 8 * n);
+    };
+    std::string out; int a = firstArg;
+    for (const char* p = GuestStr(fmt); *p && out.size() < 600; p++) {
+        if (*p != '%') { out += *p; continue; }
+        std::string spec = "%"; p++;
+        while (*p && strchr("-+ #0123456789.lhzjt", *p)) { if (*p != 'l' && *p != 'h' && *p != 'z' && *p != 'j' && *p != 't') spec += *p; p++; }
+        char c = *p; if (!c) break;
+        char b[256];
+        switch (c) {
+        case '%': out += '%'; continue;
+        case 's': { uint32_t s = (uint32_t)arg(a++); out += s ? std::string(GuestStr(s)).substr(0, 200) : "(null)"; continue; }
+        case 'c': out += (char)arg(a++); continue;
+        case 'd': case 'i': snprintf(b, sizeof b, (spec + "d").c_str(), (int)arg(a++)); break;
+        case 'u': case 'x': case 'X': case 'o': snprintf(b, sizeof b, (spec + c).c_str(), (unsigned)arg(a++)); break;
+        case 'p': snprintf(b, sizeof b, "%08X", (unsigned)arg(a++)); break;
+        case 'f': case 'g': case 'e': { uint64_t v = arg(a++); double d; memcpy(&d, &v, 8); snprintf(b, sizeof b, (spec + c).c_str(), d); break; }
+        default: b[0] = c; b[1] = 0; break;
+        }
+        out += b;
+    }
+    return out;
+}
+PPC_FUNC(sub_88F43878) {
+    if (OnlineMode() && ctx.r5.u32 >= 0x80000000u) {
+        static std::atomic<int> n{0};
+        if (n++ < 3000) { std::string t = GuestFormat(ctx, ctx.r5.u32, 3); while (!t.empty() && (t.back() == '\n' || t.back() == '\r')) t.pop_back(); fprintf(stderr, "[osdk %u] %s\n", ctx.r4.u32, t.c_str()); }
+    }
+    __imp__sub_88F43878(ctx, base);
+}

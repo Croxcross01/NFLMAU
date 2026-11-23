@@ -28,7 +28,14 @@ const std::string& OnlineGamertag() {
     return tag;
 }
 bool OnlineMode() { return !OnlineGamertag().empty(); }
-static uint64_t OnlineXuid() { uint64_t h = 1469598103934665603ull; for (char c : OnlineGamertag()) h = (h ^ (uint8_t)c) * 1099511628211ull; return 0x0009000000000000ull | (h & 0xFFFFFFFFFFFull); }
+static uint64_t OnlineXuid() {   // mods/online.txt line "xuid=<hex>" (set once by the launcher), else from the gamertag
+    static const uint64_t x = [] {
+        uint64_t v = 0;
+        if (FILE* f = fopen("mods/online.txt", "r")) { char b[128]; while (fgets(b, sizeof b, f)) if (!strncmp(b, "xuid=", 5)) v = strtoull(b + 5, nullptr, 16); fclose(f); }
+        if (!v) { uint64_t h = 1469598103934665603ull; for (char c : OnlineGamertag()) h = (h ^ (uint8_t)c) * 1099511628211ull; v = 0x0009000000000000ull | (h & 0xFFFFFFFFFFFull); }
+        return v; }();
+    return x;
+}
 static bool UserLive(uint32_t u) { return u == 0 && OnlineMode(); }
 static std::string UserName(uint32_t u) { if (UserLive(u)) return OnlineGamertag(); return u == 0 ? std::string(kPlayerName) : std::string(kPlayerName) + " " + std::to_string(u + 1); }
 IMP(XamUserGetSigninState) {   // 1 = signed in locally, 2 = signed in to Live
@@ -62,6 +69,28 @@ IMP(XamUserCheckPrivilege) {
     TRACE(XamUserCheckPrivilege);
     if (OnlineMode()) { static int n = 0; if (n++ < 10) fprintf(stderr, "[live] XamUserCheckPrivilege(user %u, privilege %u)\n", ctx.r3.u32, ctx.r4.u32); }
     if (ctx.r5.u32) WriteU32(ctx.r5.u32, 1); ctx.r3.u64 = 0;
+}
+// XamUserReadProfileSettings(title, user, xuidCount, xuids*, count, ids*, size*, buffer*, overlapped (on the stack)):
+// every setting comes back "not set" (source 0), so the game uses its defaults. Result: count, pointer to the
+// settings, then 40 bytes per setting (source, -, user/xuid, id, -, 16 data bytes).
+void CompleteOverlapped(uint32_t ov, uint32_t result, uint32_t length, uint32_t extError);
+IMP(XamUserReadProfileSettings) {
+    TRACE(XamUserReadProfileSettings);
+    uint32_t user = ctx.r4.u32, nx = ctx.r5.u32, xuids = ctx.r6.u32, n = ctx.r7.u32, ids = ctx.r8.u32, pSize = ctx.r9.u32, buf = ctx.r10.u32;
+    uint32_t ov = ReadU32(ctx.r1.u32 + 0x54);
+    uint32_t per = nx ? nx : 1, need = 8 + 40 * n * per;
+    auto done = [&](uint32_t r) { if (ov) { CompleteOverlapped(ov, r, 0, 0); ctx.r3.u64 = 0x3E5; } else ctx.r3.u64 = r; };
+    if (n < 1 || n > 32 || !pSize) { ctx.r3.u64 = 0x57; return; }
+    if (!buf || ReadU32(pSize) < need) { if (!ReadU32(pSize) || !buf) WriteU32(pSize, need); ctx.r3.u64 = 0x7A; return; }   // insufficient buffer
+    memset(g_base + buf, 0, need);
+    WriteU32(buf, n * per); WriteU32(buf + 4, buf + 8);
+    uint32_t o = buf + 8;
+    for (uint32_t x = 0; x < per; x++)
+        for (uint32_t i = 0; i < n; i++, o += 40) {
+            if (nx) WriteU64(o + 8, ReadU64(xuids + 8 * x)); else WriteU32(o + 8, user);
+            WriteU32(o + 16, ReadU32(ids + 4 * i));
+        }
+    done(0);
 }
 IMP(XamUserAreUsersFriends) { TRACE(XamUserAreUsersFriends); if (ctx.r6.u32) WriteU32(ctx.r6.u32, 0); ctx.r3.u64 = 0; }
 

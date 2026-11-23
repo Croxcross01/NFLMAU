@@ -303,6 +303,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_GPU_DETECTED: {
         bool first = GetFileAttributesW(SettingsPath().c_str()) == INVALID_FILE_ATTRIBUTES;
         FillSettingsControls();
+        FillOnlineControls();
         if (first) SaveSettings(true);   // first run: write the recommended settings
         std::wstring msg = g_gpus.empty() ? L"\nNo Vulkan graphics driver was found - update your GPU driver, then see the Settings tab.\n"
                                           : L"\nGraphics card: " + g_gpus[0].name + L" - see the Settings tab for the recommended renderer and resolution.\n";
