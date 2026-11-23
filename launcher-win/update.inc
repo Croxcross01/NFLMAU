@@ -30,7 +30,7 @@ static void UpdateThread() {
     s.status = [](const std::wstring& t, int pct) { UpdStatus(t + L"  (" + std::to_wstring(std::clamp(pct, 0, 100)) + L"%)", pct, RGB(47, 143, 255)); };
     wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
     std::wstring mf = std::wstring(tmp) + L"mau_manifest.txt";
-    if (!bc::Download(std::wstring(bc::kRepoRaw) + L"update/manifest.txt", mf, s, L"", 0, 0)) return;   // offline: just play
+    if (!bc::DownloadManifest(mf, s)) return;   // offline: just play
     bc::Manifest m;
     bool ok = bc::ParseManifest(bc::ReadText(mf), m);
     DeleteFileW(mf.c_str());

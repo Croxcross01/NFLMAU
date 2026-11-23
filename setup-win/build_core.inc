@@ -95,10 +95,10 @@ inline bool Unzip(const std::wstring& zip, const std::wstring& dir) {   // unpac
 }
 
 // Downloads over HTTPS with WinHTTP (follows redirects, uses the system proxy), showing progress lo..hi %.
-inline bool Download(const std::wstring& url, const std::wstring& dest, Sink& s, const std::wstring& label, int lo, int hi) {
+inline bool Download(const std::wstring& url, const std::wstring& dest, Sink& s, const std::wstring& label, int lo, int hi, const wchar_t* headers = nullptr) {
     DeleteFileW(dest.c_str());
     std::wstring u = url;
-    if (url.rfind(L"https://github.com/", 0) != 0) u += (url.find(L'?') == std::wstring::npos ? L"?t=" : L"&t=") + std::to_wstring(GetTickCount64());   // no stale caches
+    if (url.rfind(L"https://github.com/", 0) != 0 && url.rfind(L"https://api.github.com/", 0) != 0) u += (url.find(L'?') == std::wstring::npos ? L"?t=" : L"&t=") + std::to_wstring(GetTickCount64());   // no stale caches
     URL_COMPONENTS c{}; c.dwStructSize = sizeof c;
     wchar_t host[256] = L"", path[2048] = L"";
     c.lpszHostName = host; c.dwHostNameLength = 256; c.lpszUrlPath = path; c.dwUrlPathLength = 2048; c.dwSchemeLength = (DWORD)-1;
@@ -110,7 +110,7 @@ inline bool Download(const std::wstring& url, const std::wstring& dest, Sink& s,
     bool ok = false;
     HINTERNET con = WinHttpConnect(ses, host, c.nPort, 0);
     HINTERNET req = con ? WinHttpOpenRequest(con, L"GET", full.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, c.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0) : nullptr;
-    if (req && WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(req, nullptr)) {
+    if (req && WinHttpSendRequest(req, headers ? headers : WINHTTP_NO_ADDITIONAL_HEADERS, headers ? (DWORD)-1L : 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(req, nullptr)) {
         DWORD status = 0, len = sizeof status;
         WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &len, WINHTTP_NO_HEADER_INDEX);
         wchar_t clen[32] = L""; DWORD cl = sizeof clen; uint64_t total = 0;
@@ -135,6 +135,14 @@ inline bool Download(const std::wstring& url, const std::wstring& dest, Sink& s,
     if (con) WinHttpCloseHandle(con);
     WinHttpCloseHandle(ses);
     return ok && IsFile(dest);
+}
+
+// The update list, fresh: GitHub's API answers with the current file at once (the raw.githubusercontent.com copy can
+// lag several minutes behind a new update). Falls back to the raw copy if the API is unreachable or rate-limited.
+inline bool DownloadManifest(const std::wstring& dest, Sink& s) {
+    if (Download(L"https://api.github.com/repos/Croxcross01/NFLMAU/contents/update/manifest.txt?ref=main", dest, s, L"", 0, 0,
+                 L"Accept: application/vnd.github.raw\r\nCache-Control: no-cache\r\n") && ReadText(dest).find("version=") != std::string::npos) return true;
+    return Download(std::wstring(kRepoRaw) + L"update/manifest.txt", dest, s, L"", 0, 0);
 }
 
 inline std::wstring ToolDir(const std::wstring& install) { return install + L"\\_tools\\" + kToolDir; }

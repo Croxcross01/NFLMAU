@@ -1,5 +1,5 @@
-version=1.0.20
-pack=update/pack-1.0.20.zip
-sha256=2c47e2e64bd69b2e971e858d0260584f4e1c71c5880d9a86c54fcbcd69a1a101
+version=1.0.21
+pack=update/pack-1.0.21.zip
+sha256=b03d6fd38eb8af2f97da840ac3bf1220ecf9ac8730408b0bd73cb07cfd7d9da7
 rebuild=0
-notes=Smoother on more PCs: 144/165/75 Hz screens switch to 120/60 Hz while playing, no power throttling, timing threads get priority
+notes=Updates show up right away (no more waiting for GitHub's cache)

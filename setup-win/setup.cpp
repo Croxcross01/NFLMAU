@@ -148,7 +148,7 @@ static bool Install() {
         wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
         std::wstring mf = std::wstring(tmp) + L"mau_setup_manifest.txt";
         bc::Manifest m;
-        if (bc::Download(std::wstring(bc::kRepoRaw) + L"update/manifest.txt", mf, sink, L"", 2, 2) && bc::ParseManifest(bc::ReadText(mf), m)) {
+        if (bc::DownloadManifest(mf, sink) && bc::ParseManifest(bc::ReadText(mf), m)) {
             Status(L"Downloading the newest version (" + bc::W(m.version) + L")", 2);
             if (bc::Download(std::wstring(bc::kRepoRaw) + bc::W(m.pack), packZip, sink, L"Downloading the newest version", 2, 4) &&
                 bc::HashFile(packZip, BCRYPT_SHA256_ALGORITHM) == m.sha256 && bc::InstallPack(dir, packZip)) {
