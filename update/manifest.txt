@@ -1,5 +1,5 @@
-version=1.0.28
-pack=update/pack-1.0.28.zip
-sha256=9ebed43210678214f9e36b875795ae328faed582827e99b7e4ef3b1e1fe11db7
+version=1.0.29
+pack=update/pack-1.0.29.zip
+sha256=20499e1b93c3f507fc806f52e19c3313b5e27c95d626a4ad43ab62ff8b8a2388
 rebuild=0
-notes=Online: host and friend connect in the launcher first, see each other's gamertag, press READY - the games start when both are ready
+notes=Hosting: adds a Windows Firewall rule (one permission prompt) so your friend's connection isn't blocked

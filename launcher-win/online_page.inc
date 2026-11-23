@@ -123,6 +123,38 @@ static uint32_t AskPublicIp() {
 }
 static bool PrivateIp(uint32_t ip) { return (ip >> 24) == 10 || (ip >> 20) == 0xAC1 || (ip >> 16) == 0xC0A8 || (ip >> 22) == (100u << 2 | 1) || (ip >> 24) == 127; }
 
+
+// ---- Windows Firewall: without an "allow" rule, Windows silently drops your friend's connection to the launcher and
+// the game (its popup asking is easy to miss behind the game window). Rules for both programs are added once, with
+// one Windows permission prompt (adding firewall rules needs it).
+static bool FirewallRuleExists() {
+    std::wstring out = g_exeDir + L"\\_cache\\fwcheck.txt";
+    CreateDirectoryW((g_exeDir + L"\\_cache").c_str(), nullptr);
+    SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE};
+    HANDLE f = CreateFileW(out.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    STARTUPINFOW si{sizeof si}; si.dwFlags = STARTF_USESTDHANDLES; si.hStdOutput = f; si.hStdError = f;
+    PROCESS_INFORMATION pi{};
+    std::wstring cmd = L"netsh advfirewall firewall show rule name=\"Madden Arcade Unleashed (game)\"";
+    bool ran = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    if (ran) { WaitForSingleObject(pi.hProcess, 8000); CloseHandle(pi.hProcess); CloseHandle(pi.hThread); }
+    CloseHandle(f);
+    std::string t = bc::ReadText(out); DeleteFileW(out.c_str());
+    return ran && t.find("madden_host.exe") != std::string::npos;
+}
+static bool AddFirewallRules() {
+    std::wstring game = g_exeDir + L"\\madden_host.exe", launcher = g_exeDir + L"\\MaddenArcadeUnleashed.exe";
+    auto rule = [](const std::wstring& name, const std::wstring& prog) {
+        return L"netsh advfirewall firewall delete rule name=\"" + name + L"\" >nul & netsh advfirewall firewall add rule name=\"" + name +
+               L"\" dir=in action=allow program=\"" + prog + L"\" enable=yes profile=any";
+    };
+    std::wstring args = L"/c " + rule(L"Madden Arcade Unleashed (game)", game) + L" & " + rule(L"Madden Arcade Unleashed (launcher)", launcher);
+    SHELLEXECUTEINFOW ex{sizeof ex}; ex.fMask = SEE_MASK_NOCLOSEPROCESS; ex.hwnd = g_wnd; ex.lpVerb = L"runas";
+    ex.lpFile = L"cmd.exe"; ex.lpParameters = args.c_str(); ex.nShow = SW_HIDE;
+    if (!ShellExecuteExW(&ex) || !ex.hProcess) return false;   // the player said no
+    WaitForSingleObject(ex.hProcess, 15000); CloseHandle(ex.hProcess);
+    return FirewallRuleExists();
+}
 struct HostResult { uint32_t pub, lan, routerIp; int opened; };
 static void HostThread() {
     HostResult* r = new HostResult{0, LanIp(), 0, 0};
@@ -326,7 +358,7 @@ static void PartyShow() {
     { std::lock_guard<std::mutex> l(g_partyM); peer = g_peerName; pr = g_peerReady; mr = g_meReady; conn = g_partySock != INVALID_SOCKET; }
     int role = g_partyRole;
     if (!role) t = L"Host a game or join one with a code to play a friend.";
-    else if (!conn) t = role == 1 ? L"Waiting for your friend to join with your code..." : L"Connecting to your friend... (they need to have pressed Host a game)";
+    else if (!conn) t = role == 1 ? L"Waiting for your friend to join with your code..." : L"Connecting to your friend... If this doesn't change in a few seconds, your friend's PC isn't letting connections in - they should press Host a game again and say yes when Windows asks.";
     else {
         std::wstring other = peer.empty() ? L"your friend" : peer;
         t = L"Connected:  " + me + (role == 1 ? L" (host) " : L" ") + (mr ? L"- READY" : L"- not ready") + L"     " + other + (role == 2 ? L" (host) " : L" ") + (pr ? L"- READY" : L"- not ready");
@@ -353,6 +385,7 @@ static void HostReady(HostResult* r) {
     DeleteFileW((OnlineDir() + L"\\online_server.txt").c_str());
     g_myCode = CodeFromIp(r->pub);
     WritePrivateProfileStringW(L"online", L"hostcode", g_myCode.c_str(), LauncherIni().c_str());
+    WritePrivateProfileStringW(L"online", L"router", (std::to_wstring(r->opened) + L" ports opened, router address " + IpW(r->routerIp) + L", internet address " + IpW(r->pub)).c_str(), LauncherIni().c_str());
     // the router's own internet address differs from the one the world sees: the internet provider shares one
     // address among many homes (CGNAT) - nobody outside can connect in, whatever the router does
     bool shared = r->routerIp && r->pub && r->routerIp != r->pub;
@@ -445,6 +478,10 @@ static bool OnlineCommand(WORD id, WORD code) {
     case ID_O_GTAG: case ID_O_ONLINE: case ID_O_CODE: return true;
     case ID_O_HOST:
         if (OnlineGet(L"gamertag").empty() || OnlineGet(L"enabled") != L"1") { OnlineStatus(L"Pick a gamertag, tick Play online and press Save first."); return true; }
+        if (!FirewallRuleExists()) {
+            OnlineStatus(L"Windows will ask for permission once - this lets your friend's connection through Windows Firewall.");
+            if (!AddFirewallRules()) OnlineStatus(L"Windows Firewall wasn't updated (permission not given) - your friend may not be able to connect. Press Host a game again to retry.");
+        }
         OnlineStatus(L"Setting up hosting: asking your router to let your friends in and finding your internet address...");
         std::thread(HostThread).detach();
         return true;
