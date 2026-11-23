@@ -240,6 +240,7 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT m, WPARAM wp, LPARAM lp) {
         { RECT rc; GetClientRect(hw, &rc); Layout(rc.right, rc.bottom); }
         ShowTab(PAGE_PLAY);
         SetTimer(hw, 7, 2000, nullptr);   // watch for dev tools mod updates
+        SetTimer(hw, 8, 5 * 60 * 1000, nullptr);   // look for a new version every 5 minutes while open
         StartAutoUpdate();
         std::thread([] { DetectGpus(); PostMessageW(g_wnd, WM_GPU_DETECTED, 0, 0); }).detach();
         SendMessageW(g_log, WM_SETFONT, (WPARAM)mono, TRUE);
@@ -289,7 +290,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_DRAWITEM: { auto* di = (DRAWITEMSTRUCT*)lp; if (di->CtlType == ODT_BUTTON) { DrawButton(di); return TRUE; } break; }
     case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
         SetTextColor((HDC)wp, kText); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush;
-    case WM_TIMER: if (wp == 7) CheckModUpdate(false); return 0;
+    case WM_TIMER: if (wp == 7) CheckModUpdate(false); if (wp == 8) CheckForUpdate(); return 0;
     case WM_UPD: OnUpdMessage(wp, lp); return 0;
     case WM_GETMINMAXINFO: ((MINMAXINFO*)lp)->ptMinTrackSize = {1060, 720}; return 0;
     case WM_CTLCOLORSTATIC:   // labels and check boxes sit on the solid card
@@ -321,7 +322,9 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_DONE:
         if (g_proc == INVALID_HANDLE_VALUE) g_proc = nullptr;
         g_statusText = wp == 0 ? L"Finished - ready to play again" : L"Stopped - see the Log page"; g_statusDot = wp == 0 ? RGB(46, 204, 113) : RGB(255, 99, 99);
-        Repaint(); return 0;
+        Repaint();
+        CheckForUpdate();   // an update that waited for the game installs now
+        return 0;
     case WM_CLOSE: if (g_proc && g_proc != INVALID_HANDLE_VALUE) TerminateProcess(g_proc, 1); DestroyWindow(hw); return 0;
     case WM_DESTROY: PostQuitMessage(0); return 0;
     }

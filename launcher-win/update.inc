@@ -8,6 +8,13 @@
 enum { WM_UPD = WM_APP + 40 };
 static std::atomic<bool> g_updating{false};
 static std::wstring g_version;   // installed version ("" = not a setup install: no auto-update)
+static std::atomic<bool> g_checking{false};
+static std::atomic<bool> g_updWaiting{false};   // a newer version is out but the game is running: install after it closes
+
+// A notification box that does not stop the update (its own thread, on top of the launcher).
+static void Notify(const std::wstring& text) {
+    std::thread([text] { MessageBoxW(nullptr, text.c_str(), L"Madden Arcade Unleashed - Update", MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST); }).detach();
+}
 
 static bool AutoUpdateOn() { return GetPrivateProfileIntW(L"launcher", L"autoupdate", 1, IniPath().c_str()) != 0; }
 
@@ -29,8 +36,18 @@ static void UpdateThread() {
     DeleteFileW(mf.c_str());
     if (!ok || !bc::Newer(m.version, bc::N(g_version))) return;
 
-    g_updating = true;
     std::wstring ver = bc::W(m.version);
+    std::wstring notes = m.notes.empty() ? L"" : L"\n\nWhat's new: " + bc::W(m.notes);
+    if (g_proc) {   // the game is running (its files are in use): install when it closes
+        if (!g_updWaiting.exchange(true)) {
+            UpdStatus(L"Update " + ver + L" is ready - it installs when you close the game", 0, RGB(255, 193, 58));
+            Notify(L"Update " + ver + L" is ready." + notes + L"\n\nIt will install as soon as you close the game.");
+        }
+        return;
+    }
+    g_updWaiting = false;
+    g_updating = true;
+    Notify(L"Update " + ver + L" is installing now." + notes + L"\n\nThis takes about a minute. PLAY will be ready again when it's done.");
     Log(L"\nUpdating to version " + ver + L"...\n");
     UpdStatus(L"Updating to version " + ver + L"...", 0, RGB(47, 143, 255));
     auto fail = [&](const std::wstring& why) {
@@ -64,7 +81,24 @@ static void UpdateThread() {
     Log(L"Updated to version " + ver + (m.notes.empty() ? L"" : L": " + bc::W(m.notes)) + L"\n");
     UpdStatus(L"Updated to version " + ver + (m.notes.empty() ? L"" : L" - " + bc::W(m.notes)), 100, RGB(46, 204, 113));
     g_updating = false;
-    if (newLauncher) PostMessageW(g_wnd, WM_UPD, 1, 0);   // restart into the new launcher
+    bc::WriteText(dir + L"\\_cache\\updated.txt", bc::N(L"Update " + ver + L" is installed - you're up to date." + notes) + "\n");
+    if (newLauncher) PostMessageW(g_wnd, WM_UPD, 1, 0);   // restart into the new launcher (it shows the 'installed' box)
+    else PostMessageW(g_wnd, WM_UPD, 2, 0);
+}
+
+// "Installed" box: shown once, after the update (and after the restart into a new launcher).
+static void ShowUpdatedBox() {
+    std::wstring f = g_exeDir + L"\\_cache\\updated.txt";
+    std::string t = bc::Trim(bc::ReadText(f));
+    if (t.empty()) return;
+    DeleteFileW(f.c_str());
+    Notify(bc::W(t));
+}
+
+// Runs a check now (launcher start, every few minutes while it is open, and when the game closes).
+static void CheckForUpdate() {
+    if (g_version.empty() || !AutoUpdateOn() || g_updating || g_checking.exchange(true)) return;
+    std::thread([] { UpdateThread(); g_checking = false; }).detach();
 }
 
 static void StartAutoUpdate() {
@@ -72,8 +106,8 @@ static void StartAutoUpdate() {
     g_version = bc::W(bc::Trim(bc::ReadText(g_exeDir + L"\\version.txt")));
     g_versionLabel = g_version;
     if (!g_version.empty()) bc::CopyPackMods(g_exeDir);   // repair: the installed version's roster sets / mod data are present
-    if (g_version.empty() || !AutoUpdateOn()) return;
-    std::thread(UpdateThread).detach();
+    ShowUpdatedBox();
+    CheckForUpdate();
 }
 
 // WM_UPD in the window procedure
@@ -84,6 +118,7 @@ static void OnUpdMessage(WPARAM wp, LPARAM lp) {
         if (CreateProcessW(self, nullptr, nullptr, nullptr, FALSE, 0, nullptr, g_exeDir.c_str(), &si, &pi)) { CloseHandle(pi.hProcess); CloseHandle(pi.hThread); DestroyWindow(g_wnd); }
         return;
     }
+    if (wp == 2) { ShowUpdatedBox(); return; }
     struct M { std::wstring t; int p; COLORREF d; };
     auto* m = (M*)lp;
     g_statusText = m->t; g_statusDot = m->d;
