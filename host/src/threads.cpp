@@ -277,7 +277,7 @@ IMP(KeDelayExecutionThread) {
     int64_t v = ctx.r5.u32 ? (int64_t)ReadU64(ctx.r5.u32) : 0;
     if (v < 0) {   // short sleeps (game timing loops) wait precisely; long ones sleep normally
         int64_t us = -v / 10;
-        if (us < 4000) PreciseWait(us); else std::this_thread::sleep_for(std::chrono::nanoseconds(-v * 100));
+        PreciseWait(us);
     } else std::this_thread::yield();
     ctx.r3.u64 = STATUS_SUCCESS;
 }
@@ -433,7 +433,7 @@ IMP(NtSetTimerEx) {
     SetEventObj(o, 0);
     std::thread([o, due, period] {
         auto ns = std::chrono::nanoseconds((due < 0 ? -due : 0) * 100);
-        do { std::this_thread::sleep_for(ns); SetEventObj(o, 1); ns = std::chrono::milliseconds(period); } while (period > 0 && ObjType(o) != 0xFF);
+        do { PreciseWait(std::chrono::duration_cast<std::chrono::microseconds>(ns).count()); SetEventObj(o, 1); ns = std::chrono::milliseconds(period); } while (period > 0 && ObjType(o) != 0xFF);
     }).detach();
     ctx.r3.u64 = STATUS_SUCCESS;
 }

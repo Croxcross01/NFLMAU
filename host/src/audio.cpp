@@ -1,5 +1,6 @@
 // Audio: XAudio render-driver clients (paced like real playback; output to speakers comes later) and XMA
 // decoder contexts (allocated, not yet decoded). Semantics follow Xenia's AudioSystem (BSD-3-Clause).
+#include "precise_wait.h"
 #include "kernel.h"
 void GameTimingThread();   // perf_tune.cpp
 #include "audio_out.h"
@@ -66,7 +67,7 @@ void PlaybackClock() {
     auto next = std::chrono::steady_clock::now();
     for (;;) {
         next += kFrameTime;
-        std::this_thread::sleep_until(next);
+        PreciseSleepUntil(next);
         if (AudioOutActive()) { next = std::chrono::steady_clock::now(); continue; }
         bool any = false;
         for (auto& c : g_clients) if (c.used && c.credits < kMaxQueuedFrames) { c.credits++; any = true; }

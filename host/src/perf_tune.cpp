@@ -17,7 +17,7 @@
 #define NOMINMAX
 #include <windows.h>
 
-static bool SettingOn(const char* key, bool def) {   // settings.ini "key=0/1"
+bool SettingOn(const char* key, bool def) {   // settings.ini "key=0/1"
     FILE* f = fopen("settings.ini", "r"); if (!f) return def;
     char line[256]; bool v = def; size_t kl = strlen(key);
     while (fgets(line, sizeof line, f)) if (!strncmp(line, key, kl) && line[kl] == '=') v = atoi(line + kl + 1) != 0;
@@ -71,6 +71,7 @@ void GameTimingThread() {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 }
 #else
+bool SettingOn(const char*, bool def) { return def; }
 void TuneForSmoothness() {}
 void GameTimingThread() {}
 #endif

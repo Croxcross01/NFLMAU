@@ -1,5 +1,5 @@
-version=1.0.21
-pack=update/pack-1.0.21.zip
-sha256=b03d6fd38eb8af2f97da840ac3bf1220ecf9ac8730408b0bd73cb07cfd7d9da7
+version=1.0.22
+pack=update/pack-1.0.22.zip
+sha256=6d6ce6013d90431c80c858d8913137a258b4018a1cf5df521ce011f02c32c9b3
 rebuild=0
-notes=Updates show up right away (no more waiting for GitHub's cache)
+notes=Smoother on more PCs: no busy-waiting threads on the setup's build, precise frame timers everywhere, laptop graphics start at 720p

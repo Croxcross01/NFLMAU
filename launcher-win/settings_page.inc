@@ -54,7 +54,14 @@ static void DetectGpus() {
         g_recRenderer = L"vulkan";
         const GpuInfo& g = g_gpus[0];
         uint64_t gb = g.vram >> 30;
-        if (g.discrete && gb >= 6 && g_monH >= 1440) g_recQuality = L"high";
+        // laptop graphics ("RX 6550M", "RTX 3060 Laptop GPU", "MX450"): the picture also goes through the built-in
+        // graphics on its way to the screen, so they start at native 720p - smooth first, sharper by choice
+        std::wstring nm = g.name; for (auto& ch : nm) ch = towupper(ch);
+        bool laptop = nm.find(L"LAPTOP") != std::wstring::npos || nm.find(L"MOBILE") != std::wstring::npos || nm.find(L" MX") != std::wstring::npos;
+        for (size_t i = 1; i + 1 <= nm.size() && !laptop; i++)   // a model number ending in M: "6550M", "3070M"
+            if (nm[i] == L'M' && iswdigit(nm[i - 1]) && (i + 1 == nm.size() || nm[i + 1] == L' ')) laptop = true;
+        if (laptop && gb < 8) g_recQuality = L"low";
+        else if (g.discrete && gb >= 6 && g_monH >= 1440) g_recQuality = L"high";
         else if ((g.discrete && gb >= 3) || (!g.discrete && gb >= 2 && g_monH >= 1440)) g_recQuality = L"medium";
         else if (g.discrete && gb >= 6) g_recQuality = L"medium";
         else g_recQuality = L"low";

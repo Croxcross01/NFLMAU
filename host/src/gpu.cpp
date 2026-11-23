@@ -4,6 +4,7 @@
 // writes, fences, waits, interrupts, swaps) but draws are not rendered yet.
 #include "kernel.h"
 void GameTimingThread();   // perf_tune.cpp
+bool SettingOn(const char* key, bool def);
 #include "precise_wait.h"
 #include "gpu_vk.h"
 #include <atomic>
@@ -399,7 +400,11 @@ void VblankThread() {
     { PerfName("vblank"); }
     GameTimingThread();
     GuestCaller caller;
-    auto tick = [&] { ++g_counter; DispatchInterrupt(caller, 0, 2); };
+    // fps60=1 (experimental): two vblanks per display refresh, so the game's "every 2nd vblank" (30 fps) becomes 60
+    static const bool fast = SettingOn("fps60", false);
+    auto tick1 = [&] { ++g_counter; DispatchInterrupt(caller, 0, 2); };
+    auto tick = [&] { tick1(); if (fast) { PreciseWait(8333); tick1(); } };
+    if (fast) fprintf(stderr, "[gpu] 60 fps mode (experimental): vblank at 120 Hz\n");
 #ifdef _WIN32
     typedef HRESULT(WINAPI * DwmFlushFn)();
     DwmFlushFn dwmFlush = nullptr;
@@ -415,11 +420,11 @@ void VblankThread() {
         auto t0 = std::chrono::steady_clock::now();
         for (int i = 0; i < per; i++) dwmFlush();
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-        if (ms < 4.0 * per) { if (++fastReturns > 30) { fprintf(stderr, "[gpu] vblank: display sync not waiting - using the 60 Hz timer\n"); break; } std::this_thread::sleep_for(std::chrono::microseconds(16667 - (int)(ms * 1000))); }
+        if (ms < 4.0 * per) { if (++fastReturns > 30) { fprintf(stderr, "[gpu] vblank: display sync not waiting - using the 60 Hz timer\n"); break; } PreciseWait(16667 - (int)(ms * 1000)); }
         else fastReturns = 0;
         if (ms > 100.0) {   // window hidden / display asleep: keep the game going on the timer for a while
             auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2), next = std::chrono::steady_clock::now();
-            while (std::chrono::steady_clock::now() < until) { next += std::chrono::microseconds(16667); std::this_thread::sleep_until(next); tick(); }
+            while (std::chrono::steady_clock::now() < until) { next += std::chrono::microseconds(16667); PreciseSleepUntil(next); tick(); }
             continue;
         }
         tick();
@@ -428,7 +433,7 @@ void VblankThread() {
     auto next = std::chrono::steady_clock::now();
     for (;;) {
         next += std::chrono::microseconds(16667);
-        std::this_thread::sleep_until(next);
+        PreciseSleepUntil(next);
         tick();
     }
 }

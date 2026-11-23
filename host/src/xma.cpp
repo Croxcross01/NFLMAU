@@ -5,6 +5,7 @@
 // A worker decodes every enabled context into its output ring (FFmpeg's XMA frame decoder). Without a decoder it
 // falls back to consuming packets at real-time speed and writing silence, which still keeps game logic that waits
 // for a sound moving.
+#include "precise_wait.h"
 #include "kernel.h"
 #include <algorithm>
 #include <memory>
@@ -411,7 +412,7 @@ void Worker() {
     auto last = std::chrono::steady_clock::now();
     for (;;) {
         std::unique_lock<std::mutex> l(g_xmaLock);
-        g_xmaWake.wait_for(l, std::chrono::milliseconds(1));
+        g_xmaWake.wait_for(l, std::chrono::milliseconds(2));   // 2: the setup toolchain's library turned a 1 ms wait into a busy loop
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last).count(); last = now;
         for (uint32_t a : g_enabled) { if (g_codecMissing || !Decode(a)) Advance(a, std::min(dt, 0.05)); }
