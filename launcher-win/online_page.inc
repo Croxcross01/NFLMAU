@@ -7,7 +7,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
-enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, ID_O_PLAY, WM_HOST_READY = WM_APP + 60 };
+enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, ID_O_PLAY, WM_HOST_READY = WM_APP + 60, WM_JOIN_CHECKED };
 static HWND g_oHead1, g_oHead2, g_oHostLbl, g_oJoinLbl, g_oCodeShow, g_oCodeEdit, g_oStatus, g_oHelp;
 static std::vector<HWND> g_onlineCtl;
 static std::wstring g_myCode;
@@ -121,10 +121,11 @@ static uint32_t AskPublicIp() {
 }
 static bool PrivateIp(uint32_t ip) { return (ip >> 24) == 10 || (ip >> 20) == 0xAC1 || (ip >> 16) == 0xC0A8 || (ip >> 22) == (100u << 2 | 1) || (ip >> 24) == 127; }
 
-struct HostResult { uint32_t pub, lan; int opened; };
+struct HostResult { uint32_t pub, lan, routerIp; int opened; };
 static void HostThread() {
-    HostResult* r = new HostResult{0, LanIp(), 0};
+    HostResult* r = new HostResult{0, LanIp(), 0, 0};
     r->opened = OpenRouterPorts(r->lan, r->pub);
+    r->routerIp = r->pub;
     uint32_t asked = AskPublicIp();
     if (asked && (!r->pub || PrivateIp(r->pub))) r->pub = asked;   // a router behind another router reports a private address
     PostMessageW(g_wnd, WM_HOST_READY, 0, (LPARAM)r);
@@ -145,6 +146,24 @@ static void RefreshOnlinePage() {
         OnlineStatus(L"Joining a friend (code " + CodeFromIp(ip) + L"). Start the game and go to Play Now > Xbox Live.");
     }
 }
+// Can this PC open a connection to the host's lobby? (their game must be running with PLAY ONLINE)
+static bool CanReach(uint32_t ip, uint16_t port) {
+    WSADATA d; WSAStartup(MAKEWORD(2, 2), &d);
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); if (s == INVALID_SOCKET) return false;
+    u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);
+    sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(port); a.sin_addr.s_addr = htonl(ip);
+    connect(s, (sockaddr*)&a, sizeof a);
+    fd_set w, e; FD_ZERO(&w); FD_ZERO(&e); FD_SET(s, &w); FD_SET(s, &e);
+    timeval tv{5, 0};
+    bool ok = select(0, nullptr, &w, &e, &tv) > 0 && FD_ISSET(s, &w);
+    closesocket(s);
+    return ok;
+}
+static void JoinChecked(bool ok, uint32_t ip) {
+    OnlineStatus(ok ? L"Your friend's game answered (code " + CodeFromIp(ip) + L"). Press PLAY ONLINE, then go to Play Now > Xbox Live > Quick Match."
+                    : L"Set to join code " + CodeFromIp(ip) + L", but their game didn't answer yet. Make sure your friend pressed PLAY ONLINE "
+                      L"while hosting (and allowed it through Windows Firewall), then press Join again to re-check.");
+}
 static void HostReady(HostResult* r) {
     if (!r->pub) { OnlineStatus(L"Couldn't find your internet address - check your connection and press Host again."); delete r; return; }
     CreateDirectoryW(OnlineDir().c_str(), nullptr);
@@ -152,8 +171,14 @@ static void HostReady(HostResult* r) {
     DeleteFileW((OnlineDir() + L"\\online_server.txt").c_str());
     g_myCode = CodeFromIp(r->pub);
     WritePrivateProfileStringW(L"online", L"hostcode", g_myCode.c_str(), LauncherIni().c_str());
-    std::wstring st = r->opened >= 3
-        ? L"Hosting. Your router opened the ports automatically. Send your friend the code, then both start the game and go to Play Now > Xbox Live."
+    // the router's own internet address differs from the one the world sees: the internet provider shares one
+    // address among many homes (CGNAT) - nobody outside can connect in, whatever the router does
+    bool shared = r->routerIp && r->pub && r->routerIp != r->pub;
+    std::wstring st = shared
+        ? L"Hosting is set up, but your router sits behind another router or your internet provider shares your address (CGNAT), so your friend most "
+          L"likely can't connect to you. Let your friend host instead (you join with their code)."
+        : r->opened >= 3
+        ? L"Hosting. Your router opened the ports automatically. Send your friend the code, then press PLAY ONLINE (allow it if Windows Firewall asks) - your friend joins with the code."
         : L"Hosting, but your router didn't open the ports automatically (UPnP is off or not supported). Your friend may not be able to connect - "
           L"in your router's settings, forward TCP 25860-25861 and UDP 3074 to " + IpW(r->lan) + L", or turn on UPnP.";
     OnlineStatus(st);
@@ -239,6 +264,8 @@ static bool OnlineCommand(WORD id, WORD code) {
         bc::WriteText(OnlineDir() + L"\\online_server.txt", bc::N(IpW(ip)) + " " + std::to_string(kLobbyPort) + "\n");
         DeleteFileW((OnlineDir() + L"\\online_host.txt").c_str());
         RefreshOnlinePage();
+        OnlineStatus(L"Checking that your friend's game can be reached...");
+        std::thread([ip] { PostMessageW(g_wnd, WM_JOIN_CHECKED, CanReach(ip, kLobbyPort) ? 1 : 0, (LPARAM)ip); }).detach();
         return true; }
     case ID_O_STOP:
         DeleteFileW((OnlineDir() + L"\\online_host.txt").c_str());

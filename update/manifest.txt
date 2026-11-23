@@ -1,5 +1,5 @@
-version=1.0.24
-pack=update/pack-1.0.24.zip
-sha256=17924a269d933dd44a222b803fa3550ef5cccf1589a2b5bdf97c19128a2154ee
+version=1.0.25
+pack=update/pack-1.0.25.zip
+sha256=6bca6639912e0c54b900e9d8214c7806a0c74b7a778e11a5bcfdb13731168618
 rebuild=0
-notes=Regular games are never signed in to Xbox Live (fixes passes not going to the receiver you pick); online games start with PLAY ONLINE on the Online page
+notes=Online: everyone plays the same 2027 roster; the host's lobby opens as soon as the game starts; Join checks your friend's game can be reached

@@ -50,6 +50,14 @@ static std::string RosterDir() {
         const char* root = getenv("MADDEN_MODS_ROOT");
         std::string base = root ? root : "mods";
         std::string name;
+        const char* on = getenv("MADDEN_ONLINE");
+        if (on && !strcmp(on, "1")) {   // online games: the shared 2027 roster (see main.cpp)
+            std::string d = base + "/rosters/2027/online";
+            FILE* t = fopen((d + "/qkl_boot.ast").c_str(), "rb");
+            if (t) { fclose(t); fprintf(stderr, "[mods] roster: online - 2027 (mods/rosters/2027/online)\n"); return d; }
+            fprintf(stderr, "[mods] roster: online - 2027 roster not available, original roster\n");
+            return std::string();
+        }
         if (FILE* f = fopen((base + "/roster.txt").c_str(), "rb")) {
             char b[64] = {}; if (fscanf(f, "%63s", b) == 1) name = b;
             fclose(f);

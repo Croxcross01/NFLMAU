@@ -99,15 +99,18 @@ struct Player {
 
 // Build (if needed) the roster set <set> from <gameDir>/qkl_boot.ast. Returns false on a problem (the game then uses the
 // set's previous build, if any, or the original roster).
-bool BuildRosterSet(const std::string& gameDir, const std::string& setDir) {
+// outDir (default setDir): where the result goes; withRatings=false leaves the player's ratings file out (online
+// games: every PC builds the identical roster from the shared facts).
+bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const std::string& outDir, bool withRatings) {
     namespace fs = std::filesystem;
-    std::string factsPath = setDir + "/roster.tsv", ratingsPath = setDir + "/ratings.csv", editsPath = setDir + "/roster_edits.txt";
-    std::string out = setDir + "/qkl_boot.ast", src = gameDir + "/qkl_boot.ast";
+    std::string factsPath = setDir + "/roster.tsv", ratingsPath = withRatings ? setDir + "/ratings.csv" : std::string(), editsPath = setDir + "/roster_edits.txt";
+    std::string out = outDir + "/qkl_boot.ast", src = gameDir + "/qkl_boot.ast";
+    std::error_code mk; fs::create_directories(outDir, mk);
     if (!fs::exists(factsPath)) return fs::exists(out);   // a set made with the dev tools: nothing to build
     std::error_code ec; auto gsz = fs::file_size(src, ec);
     char stamp[64]; uint64_t h = Fnv(FileText(factsPath)); h = Fnv(FileText(ratingsPath), h); h = Fnv(FileText(editsPath), h); h = Fnv(std::to_string(gsz), h);
     snprintf(stamp, sizeof stamp, "v2 %016llx", (unsigned long long)h);
-    if (fs::exists(out) && FileText(setDir + "/built.txt").rfind(stamp, 0) == 0) return true;
+    if (fs::exists(out) && FileText(outDir + "/built.txt").rfind(stamp, 0) == 0) return true;
 
     fprintf(stderr, "[mods] roster: building %s from your game files...\n", setDir.c_str());
     gdb::Archive ar; if (!ar.Open(src)) { fprintf(stderr, "[mods] roster: cannot read %s\n", src.c_str()); return false; }
@@ -297,7 +300,9 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir) {
     master.FixChecksums();
     repl[70] = master.d;
     if (!ar.WritePatched(out, repl)) { fprintf(stderr, "[mods] roster: could not write %s\n", out.c_str()); return false; }
-    if (FILE* f = fopen((setDir + "/built.txt").c_str(), "wb")) { fprintf(f, "%s\n", stamp); fclose(f); }
+    if (FILE* f = fopen((outDir + "/built.txt").c_str(), "wb")) { fprintf(f, "%s\n", stamp); fclose(f); }
     fprintf(stderr, "[mods] roster: built %s (%zu teams)\n", out.c_str(), teamRatings.size());
     return true;
 }
+
+bool BuildRosterSet(const std::string& gameDir, const std::string& setDir) { return BuildRosterSet(gameDir, setDir, setDir, true); }

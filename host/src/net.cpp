@@ -340,3 +340,10 @@ PPC_FUNC(sub_88F43878) {
     }
     __imp__sub_88F43878(ctx, base);
 }
+
+// At start: when hosting for friends (PLAY ONLINE with mods/online_host.txt) the lobby opens right away, so a friend
+// can connect before the host reaches the Xbox Live menu (and Windows asks about the firewall before the game window).
+void OnlineStartup() {
+    if (!OnlineMode()) return;
+    if (FILE* f = fopen("mods/online_host.txt", "r")) { fclose(f); g_standIn = true; StartLocalLobby(); fprintf(stderr, "[net] hosting: lobby open for friends\n"); }
+}

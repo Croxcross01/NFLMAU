@@ -301,6 +301,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_TIMER: if (wp == 7) CheckModUpdate(false); if (wp == 8) CheckForUpdate(); return 0;
     case WM_UPD: OnUpdMessage(wp, lp); return 0;
     case WM_HOST_READY: HostReady((HostResult*)lp); return 0;
+    case WM_JOIN_CHECKED: JoinChecked(wp != 0, (uint32_t)lp); return 0;
     case WM_GETMINMAXINFO: ((MINMAXINFO*)lp)->ptMinTrackSize = {1060, 720}; return 0;
     case WM_CTLCOLORSTATIC:   // labels and check boxes sit on the solid card
         if ((HWND)lp == g_log) { SetTextColor((HDC)wp, RGB(170, 205, 240)); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush; }

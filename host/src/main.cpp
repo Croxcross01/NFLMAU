@@ -268,7 +268,15 @@ int main(int argc, char** argv) {
         if (FILE* f = fopen((mods + "/roster.txt").c_str(), "rb")) { char b[64] = {}; if (fscanf(f, "%63s", b) == 1) set = b; fclose(f); }
         bool okName = !set.empty() && set != "original";
         for (char c : set) if (!isalnum((unsigned char)c) && c != '_' && c != '-') okName = false;
-        if (okName) BuildRosterSet(getenv("MADDEN_GAME_DIR") ? getenv("MADDEN_GAME_DIR") : gameDir, mods + "/rosters/" + set);
+        std::string gd = getenv("MADDEN_GAME_DIR") ? getenv("MADDEN_GAME_DIR") : gameDir;
+        const char* on = getenv("MADDEN_ONLINE");
+        if (on && !strcmp(on, "1")) {
+            // online games: everyone plays the same roster - the 2027 set, built from the shared facts only (a player's
+            // own ratings file is for offline games), so both PCs run identical teams
+            bool BuildRosterSet(const std::string&, const std::string&, const std::string&, bool);
+            if (BuildRosterSet(gd, mods + "/rosters/2027", mods + "/rosters/2027/online", false)) fprintf(stderr, "[mods] roster: online games use the 2027 roster (without personal ratings)\n");
+        } else if (okName) BuildRosterSet(gd, mods + "/rosters/" + set);
+        void OnlineStartup(); OnlineStartup();   // hosting: the lobby for friends opens now, not when the menu is reached
     }
 
     g_base = (uint8_t*)PlatReserveGuestMemory(PPC_MEMORY_SIZE);
