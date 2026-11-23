@@ -1,5 +1,5 @@
-version=1.0.27
-pack=update/pack-1.0.27.zip
-sha256=5a3e7d5c0abc8ef60630cf30cedfad545ce50a2ceb5034e84880240ce9cb3176
+version=1.0.28
+pack=update/pack-1.0.28.zip
+sha256=9ebed43210678214f9e36b875795ae328faed582827e99b7e4ef3b1e1fe11db7
 rebuild=0
-notes=PlayStation controllers: never counted twice when Steam or DS4Windows already makes them Xbox controllers (fixes buttons not registering)
+notes=Online: host and friend connect in the launcher first, see each other's gamertag, press READY - the games start when both are ready

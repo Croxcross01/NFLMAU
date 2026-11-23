@@ -7,9 +7,10 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <atomic>
+#include <mutex>
 
-enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, ID_O_PLAY, WM_HOST_READY = WM_APP + 60, WM_JOIN_CHECKED, WM_WHO };
-static HWND g_oWho, g_oHead1, g_oHead2, g_oHostLbl, g_oJoinLbl, g_oCodeShow, g_oCodeEdit, g_oStatus, g_oHelp;
+enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, ID_O_PLAY, ID_O_READY, WM_HOST_READY = WM_APP + 60, WM_JOIN_CHECKED, WM_WHO, WM_PARTY };
+static HWND g_oParty, g_oWho, g_oHead1, g_oHead2, g_oHostLbl, g_oJoinLbl, g_oCodeShow, g_oCodeEdit, g_oStatus, g_oHelp;
 static std::vector<HWND> g_onlineCtl;
 static std::wstring g_myCode;
 static constexpr uint16_t kLobbyPort = 25860;
@@ -72,7 +73,7 @@ static const GUID kIidUPnPNAT = {0xB171C812, 0xCC76, 0x485A, {0x94, 0xD8, 0xB6, 
 // Asks the router to send these ports to this PC. Returns how many it opened; sets the internet address if the
 // router reports it.
 static int OpenRouterPorts(uint32_t lan, uint32_t& publicIp) {
-    struct P { long port; const wchar_t* proto; } ports[] = {{25860, L"TCP"}, {25861, L"TCP"}, {3074, L"UDP"}, {3074, L"TCP"}};
+    struct P { long port; const wchar_t* proto; } ports[] = {{25860, L"TCP"}, {25861, L"TCP"}, {3074, L"UDP"}, {3074, L"TCP"}, {25864, L"TCP"}};
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     int opened = 0;
     IUPnPNAT_* nat = nullptr;
@@ -144,7 +145,7 @@ static void RefreshOnlinePage() {
     EnableWindow(GetDlgItem(g_wnd, ID_O_STOP), hosting || !join.empty());
     if (!join.empty() && !hosting) {
         unsigned a, b, c, d; uint32_t ip = 0; if (sscanf(join.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) == 4) ip = a << 24 | b << 16 | c << 8 | d;
-        OnlineStatus(L"Joining a friend (code " + CodeFromIp(ip) + L"). Start the game and go to Play Now > Xbox Live.");
+        OnlineStatus(L"Joining a friend (code " + CodeFromIp(ip) + L"). When you see your friend below, press READY.");
     }
 }
 // Can this PC open a connection to the host's lobby? (their game must be running with PLAY ONLINE)
@@ -219,6 +220,132 @@ static void JoinChecked(bool ok, uint32_t ip) {
                     : L"Set to join code " + CodeFromIp(ip) + L", but their game didn't answer yet. Make sure your friend pressed PLAY ONLINE "
                       L"while hosting (and allowed it through Windows Firewall), then press Join again to re-check.");
 }
+
+// ---- Ready up: before any game starts, the two launchers connect to each other (TCP 25864, opened on the router
+// with the others) so each side sees the other's gamertag and whether he is ready. When both are ready the host's game
+// starts at once and the friend's a few seconds later (once the host's lobby is up) - nobody starts too early.
+// Lines: "HELLO <gamertag>", "READY 0|1", "START", "BYE".
+static constexpr uint16_t kPartyPort = 25864;
+static std::mutex g_partyM;
+static SOCKET g_partySock = INVALID_SOCKET;        // the connection to the other launcher
+static std::atomic<int> g_partyRole{0};            // 0 none, 1 host, 2 joining
+static std::atomic<uint32_t> g_partyGen{0};        // bumped to stop the current host/join thread
+static std::wstring g_peerName; static bool g_peerReady = false, g_meReady = false, g_partyStarted = false;
+static std::wstring W8(const std::string& s) { std::wstring w; for (unsigned char c : s) w += (wchar_t)c; return w; }
+static void PartyUi() { PostMessageW(g_wnd, WM_PARTY, 0, 0); }
+static void PartySend(const std::string& line) {
+    std::lock_guard<std::mutex> l(g_partyM);
+    if (g_partySock != INVALID_SOCKET) { std::string m = line + "\n"; send(g_partySock, m.data(), (int)m.size(), 0); }
+}
+static void PartyHello() { PartySend("HELLO " + Utf8(OnlineGet(L"gamertag"))); PartySend(std::string("READY ") + (g_meReady ? "1" : "0")); }
+// both ready: the host starts now and tells the friend; the friend starts 4 seconds after hearing it
+static void PartyMaybeStart() {
+    if (g_partyRole != 1 || g_partyStarted || !g_meReady || !g_peerReady) return;
+    g_partyStarted = true;
+    PartySend("START");
+    PostMessageW(g_wnd, WM_PARTY, 1, 0);   // start the game (UI thread)
+}
+// reads lines from the other launcher until it goes away
+static void PartyRead(SOCKET s, uint32_t gen) {
+    std::string buf; char b[512]; int n;
+    while (g_partyGen == gen && (n = recv(s, b, sizeof b, 0)) > 0) {
+        buf.append(b, n);
+        for (size_t e; (e = buf.find('\n')) != std::string::npos; buf.erase(0, e + 1)) {
+            std::string line = buf.substr(0, e); if (!line.empty() && line.back() == '\r') line.pop_back();
+            { std::lock_guard<std::mutex> l(g_partyM);
+              if (line.rfind("HELLO ", 0) == 0) g_peerName = W8(line.substr(6, 15));
+              else if (line.rfind("READY ", 0) == 0) g_peerReady = line[6] == '1'; }
+            if (line == "START" && g_partyRole == 2 && !g_partyStarted) { g_partyStarted = true; PostMessageW(g_wnd, WM_PARTY, 2, 0); }
+            PartyMaybeStart();
+            PartyUi();
+        }
+    }
+    { std::lock_guard<std::mutex> l(g_partyM); if (g_partySock == s) g_partySock = INVALID_SOCKET; g_peerName.clear(); g_peerReady = false; }
+    closesocket(s);
+    PartyUi();
+}
+static void PartyHostThread(uint32_t gen) {
+    WSADATA d; WSAStartup(MAKEWORD(2, 2), &d);
+    SOCKET ls = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    BOOL yes = TRUE; setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, (const char*)&yes, sizeof yes);
+    sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(kPartyPort);
+    if (ls == INVALID_SOCKET || bind(ls, (sockaddr*)&a, sizeof a) != 0 || listen(ls, 4) != 0) { if (ls != INVALID_SOCKET) closesocket(ls); return; }
+    while (g_partyGen == gen) {
+        fd_set r; FD_ZERO(&r); FD_SET(ls, &r); timeval tv{1, 0};
+        if (select(0, &r, nullptr, nullptr, &tv) <= 0) continue;
+        SOCKET c = accept(ls, nullptr, nullptr); if (c == INVALID_SOCKET) continue;
+        { std::lock_guard<std::mutex> l(g_partyM);
+          if (g_partySock != INVALID_SOCKET) { closesocket(g_partySock); }   // a reconnect replaces the old connection
+          g_partySock = c; g_peerName.clear(); g_peerReady = false; }
+        PartyHello();
+        std::thread(PartyRead, c, gen).detach();
+        PartyUi();
+    }
+    closesocket(ls);
+}
+static void PartyJoinThread(uint32_t ip, uint32_t gen) {   // keeps trying until connected (the host may open later)
+    WSADATA d; WSAStartup(MAKEWORD(2, 2), &d);
+    while (g_partyGen == gen) {
+        bool connected; { std::lock_guard<std::mutex> l(g_partyM); connected = g_partySock != INVALID_SOCKET; }
+        if (!connected) {
+            SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(kPartyPort); a.sin_addr.s_addr = htonl(ip);
+            u_long nb = 1; ioctlsocket(s, FIONBIO, &nb); connect(s, (sockaddr*)&a, sizeof a);
+            fd_set w; FD_ZERO(&w); FD_SET(s, &w); timeval tv{4, 0};
+            if (select(0, nullptr, &w, nullptr, &tv) > 0) {
+                nb = 0; ioctlsocket(s, FIONBIO, &nb);
+                { std::lock_guard<std::mutex> l(g_partyM); g_partySock = s; }
+                PartyHello();
+                std::thread(PartyRead, s, gen).detach();
+                PartyUi();
+            } else closesocket(s);
+        }
+        for (int i = 0; i < 3 && g_partyGen == gen; i++) Sleep(1000);
+    }
+}
+static void PartyStop() {
+    g_partyGen++;
+    { std::lock_guard<std::mutex> l(g_partyM); if (g_partySock != INVALID_SOCKET) { send(g_partySock, "BYE\n", 4, 0); closesocket(g_partySock); g_partySock = INVALID_SOCKET; }
+      g_peerName.clear(); g_peerReady = false; g_meReady = false; g_partyStarted = false; }
+    g_partyRole = 0;
+    PartyUi();
+}
+// a game ended: everyone is "not ready" again for the next one (the link stays)
+static void PartyAfterGame() {
+    if (!g_partyRole) return;
+    { std::lock_guard<std::mutex> l(g_partyM); g_meReady = false; g_partyStarted = false; }
+    PartySend("READY 0");
+    PartyUi();
+}
+static void PartyStartHost() { PartyStop(); g_partyRole = 1; uint32_t gen = g_partyGen; std::thread(PartyHostThread, gen).detach(); PartyUi(); }
+static void PartyStartJoin(uint32_t ip) { PartyStop(); g_partyRole = 2; uint32_t gen = g_partyGen; std::thread(PartyJoinThread, ip, gen).detach(); PartyUi(); }
+// the "who / ready" line and the Ready button text
+static void PartyShow() {
+    std::wstring t, me = OnlineGet(L"gamertag");
+    std::wstring peer; bool pr, mr, conn;
+    { std::lock_guard<std::mutex> l(g_partyM); peer = g_peerName; pr = g_peerReady; mr = g_meReady; conn = g_partySock != INVALID_SOCKET; }
+    int role = g_partyRole;
+    if (!role) t = L"Host a game or join one with a code to play a friend.";
+    else if (!conn) t = role == 1 ? L"Waiting for your friend to join with your code..." : L"Connecting to your friend... (they need to have pressed Host a game)";
+    else {
+        std::wstring other = peer.empty() ? L"your friend" : peer;
+        t = L"Connected:  " + me + (role == 1 ? L" (host) " : L" ") + (mr ? L"- READY" : L"- not ready") + L"     " + other + (role == 2 ? L" (host) " : L" ") + (pr ? L"- READY" : L"- not ready");
+        if (mr && pr) t += role == 1 ? L"     Starting..." : L"     Starting when the host's game is up...";
+        else if (!mr) t += L"     Press READY when you are.";
+        else t += L"     Waiting for " + other + L" to press READY.";
+    }
+    SetWindowTextW(g_oParty, t.c_str());
+    SetWindowTextW(GetDlgItem(g_wnd, ID_O_READY), mr ? L"NOT READY" : L"READY");
+    EnableWindow(GetDlgItem(g_wnd, ID_O_READY), conn);
+}
+static void OnParty(WPARAM what) {
+    if (what == 1) { OnlineStatus(L"Both ready - starting the game (you host)."); if (!g_proc) OnPlay(true); }
+    if (what == 2) {   // the friend: give the host's game a head start so its lobby is open
+        OnlineStatus(L"Both ready - your game starts in a few seconds...");
+        SetTimer(g_wnd, 10, 4000, nullptr);
+    }
+    PartyShow();
+}
 static void HostReady(HostResult* r) {
     if (!r->pub) { OnlineStatus(L"Couldn't find your internet address - check your connection and press Host again."); delete r; return; }
     CreateDirectoryW(OnlineDir().c_str(), nullptr);
@@ -238,6 +365,7 @@ static void HostReady(HostResult* r) {
           L"in your router's settings, forward TCP 25860-25861 and UDP 3074 to " + IpW(r->lan) + L", or turn on UPnP.";
     OnlineStatus(st);
     RefreshOnlinePage();
+    PartyStartHost();
     delete r;
 }
 
@@ -263,11 +391,17 @@ static void CreateOnlinePage(HWND hw, HFONT f) {
     OButton(hw, L"Stop hosting / joining", ID_O_STOP, f);
     g_oStatus = OLabel(hw, L"", f);
     g_oWho = OLabel(hw, L"", f);
-    g_oHelp = OLabel(hw, L"Online games start with PLAY ONLINE (the Play page's PLAY is always an offline game). One of you hosts and sends the join code; the other "
-                         L"types it under Join. Then both press PLAY ONLINE and go to "
+    g_oParty = OLabel(hw, L"", f);
+    OButton(hw, L"READY", ID_O_READY, f);
+    g_oHelp = OLabel(hw, L"One of you presses Host a game and sends the join code; the other types it under Join. You'll both see each other here - press READY, and "
+                         L"when both are ready the games start (the host's first). Then go to "
                          L"Play Now > Xbox Live and pick Quick Match. Every pair of players can host their own game this way - "
                          L"nobody else can get into yours without your code. The host's PC has to stay on while you play.", f);
     std::wstring code; wchar_t b[32] = L""; GetPrivateProfileStringW(L"online", L"hostcode", L"", b, 32, LauncherIni().c_str()); g_myCode = b;
+    // hosting / joining from last time: reconnect the ready-up link
+    if (GetFileAttributesW((OnlineDir() + L"\\online_host.txt").c_str()) != INVALID_FILE_ATTRIBUTES) PartyStartHost();
+    else { std::string j = bc::Trim(bc::ReadText(OnlineDir() + L"\\online_server.txt")); unsigned a1, a2, a3, a4;
+           if (sscanf(j.c_str(), "%u.%u.%u.%u", &a1, &a2, &a3, &a4) == 4) PartyStartJoin(a1 << 24 | a2 << 16 | a3 << 8 | a4); }
 }
 static void LayoutOnlinePage(int x, int y, int right, int bottom) {
     MoveWindow(g_sGtagLabel, x, y + 5, 160, 20, TRUE);
@@ -285,17 +419,25 @@ static void LayoutOnlinePage(int x, int y, int right, int bottom) {
     MoveWindow(g_oCodeEdit, x + 180, y + 3, 150, 28, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_O_JOIN), x + 346, y, 110, 34, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_O_STOP), x + 470, y, 220, 34, TRUE); y += 50;
+    MoveWindow(GetDlgItem(g_wnd, ID_O_READY), x, y, 150, 36, TRUE);
+    MoveWindow(g_oParty, x + 166, y + 2, right - x - 166, 40, TRUE); y += 48;
     MoveWindow(g_oWho, x, y, right - x, 22, TRUE); y += 30;
     MoveWindow(g_oStatus, x, y, right - x, 60, TRUE); y += 66;
     MoveWindow(g_oHelp, x, y, right - x, std::max(40, bottom - y), TRUE);
 }
 static void ShowOnlinePage(bool show) {
     for (HWND c : g_onlineCtl) ShowWindow(c, show ? SW_SHOW : SW_HIDE);
-    if (show) { RefreshOnlinePage(); PollWho(); SetTimer(g_wnd, 9, 3000, nullptr); } else KillTimer(g_wnd, 9);
+    if (show) { RefreshOnlinePage(); PollWho(); PartyShow(); SetTimer(g_wnd, 9, 3000, nullptr); } else KillTimer(g_wnd, 9);
 }
 static bool OnlineCommand(WORD id, WORD code) {
     switch (id) {
     case ID_O_GTSAVE: SaveOnline(); return true;
+    case ID_O_READY:
+        { std::lock_guard<std::mutex> l(g_partyM); g_meReady = !g_meReady; }
+        PartySend(std::string("READY ") + (g_meReady ? "1" : "0"));
+        PartyMaybeStart();
+        PartyShow();
+        return true;
     case ID_O_PLAY:   // the game signed in to Xbox Live (PLAY on the Play page is always an offline game)
         if (OnlineGet(L"gamertag").empty() || OnlineGet(L"enabled") != L"1") { OnlineStatus(L"Pick a gamertag, tick Play online and press Save first."); return true; }
         OnPlay(true);
@@ -324,10 +466,11 @@ static bool OnlineCommand(WORD id, WORD code) {
         bc::WriteText(OnlineDir() + L"\\online_server.txt", bc::N(IpW(ip)) + " " + std::to_string(kLobbyPort) + "\n");
         DeleteFileW((OnlineDir() + L"\\online_host.txt").c_str());
         RefreshOnlinePage();
-        OnlineStatus(L"Checking that your friend's game can be reached...");
-        std::thread([ip] { PostMessageW(g_wnd, WM_JOIN_CHECKED, CanReach(ip, kLobbyPort) ? 1 : 0, (LPARAM)ip); }).detach();
+        PartyStartJoin(ip);
+        OnlineStatus(L"Connecting to your friend...");
         return true; }
     case ID_O_STOP:
+        PartyStop();
         DeleteFileW((OnlineDir() + L"\\online_host.txt").c_str());
         DeleteFileW((OnlineDir() + L"\\online_server.txt").c_str());
         OnlineStatus(L"Stopped. Your game uses its own private lobby again.");

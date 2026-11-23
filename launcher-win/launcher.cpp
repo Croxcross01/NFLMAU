@@ -298,11 +298,12 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_DRAWITEM: { auto* di = (DRAWITEMSTRUCT*)lp; if (di->CtlType == ODT_BUTTON) { DrawButton(di); return TRUE; } break; }
     case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
         SetTextColor((HDC)wp, kText); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush;
-    case WM_TIMER: if (wp == 7) CheckModUpdate(false); if (wp == 8) CheckForUpdate(); if (wp == 9) PollWho(); return 0;
+    case WM_TIMER: if (wp == 7) CheckModUpdate(false); if (wp == 8) CheckForUpdate(); if (wp == 9) PollWho(); if (wp == 10) { KillTimer(hw, 10); if (!g_proc) OnPlay(true); } return 0;
     case WM_UPD: OnUpdMessage(wp, lp); return 0;
     case WM_HOST_READY: HostReady((HostResult*)lp); return 0;
     case WM_JOIN_CHECKED: JoinChecked(wp != 0, (uint32_t)lp); return 0;
     case WM_WHO: ShowWho((std::wstring*)lp); return 0;
+    case WM_PARTY: OnParty(wp); return 0;
     case WM_GETMINMAXINFO: ((MINMAXINFO*)lp)->ptMinTrackSize = {1060, 720}; return 0;
     case WM_CTLCOLORSTATIC:   // labels and check boxes sit on the solid card
         if ((HWND)lp == g_log) { SetTextColor((HDC)wp, RGB(170, 205, 240)); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush; }
@@ -336,6 +337,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
         g_statusText = wp == 0 ? L"Finished - ready to play again" : L"Stopped - see the Log page"; g_statusDot = wp == 0 ? RGB(46, 204, 113) : RGB(255, 99, 99);
         Repaint();
         CheckForUpdate();   // an update that waited for the game installs now
+        PartyAfterGame();   // both players "not ready" again for the next online game
         return 0;
     case WM_CLOSE: if (g_proc && g_proc != INVALID_HANDLE_VALUE) TerminateProcess(g_proc, 1); DestroyWindow(hw); return 0;
     case WM_DESTROY: PostQuitMessage(0); return 0;
