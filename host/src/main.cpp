@@ -228,6 +228,7 @@ static void SetEnvDefault(const char* k, const std::string& v) {
 #endif
 }
 
+void TuneForSmoothness();
 std::chrono::steady_clock::time_point g_hostStart = std::chrono::steady_clock::now();
 int main(int argc, char** argv) {
     // unbuffered output: when the launcher captures our output through a pipe, Windows buffers it, and a crash
@@ -238,6 +239,7 @@ int main(int argc, char** argv) {
     // game's own short waits (audio thread, vblank pacing, kernel timers) and made sound fall behind
     timeBeginPeriod(1);
     { PerfName("game main"); PerfStart(); }
+    TuneForSmoothness();   // display refresh, power throttling, priority (perf_tune.cpp)
 #endif
     std::string gameDir = "game", imgPath, settingsPath = "settings.ini";
     for (int i = 1; i < argc; i++) {

@@ -1,4 +1,5 @@
 #include <cmath>
+void GameTimingThread();   // perf_tune.cpp
 void DumpGuestThreads();
 // Game window + Vulkan presenter. Each XE_SWAP hands us the front buffer (a guest texture); we untile it,
 // convert it to RGBA8, upload it and scale it into the window (aspect preserved). Tiling/swizzle rules follow
@@ -426,6 +427,7 @@ struct VkPresenter {
 
 void RenderThread() {
     { PerfName("present"); }
+    GameTimingThread();
     VkPresenter vp;
     if (!vp.Init()) {
         fprintf(stderr, "[video] no window - the game keeps running headless\n"); g_running = false;

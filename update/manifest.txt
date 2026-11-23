@@ -1,5 +1,5 @@
-version=1.0.19
-pack=update/pack-1.0.19.zip
-sha256=0be180ca0af122bb3fead4eb449aaa920551495206992d4fa023373b6f95c086
+version=1.0.20
+pack=update/pack-1.0.20.zip
+sha256=2c47e2e64bd69b2e971e858d0260584f4e1c71c5880d9a86c54fcbcd69a1a101
 rebuild=0
-notes=Setup and launcher no longer start outside tools to unpack or download, and the setup carries no built-in program files
+notes=Smoother on more PCs: 144/165/75 Hz screens switch to 120/60 Hz while playing, no power throttling, timing threads get priority

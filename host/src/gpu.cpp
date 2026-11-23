@@ -3,6 +3,7 @@
 // This is the "null GPU" stage: every packet is executed for its side effects (register writes, memory
 // writes, fences, waits, interrupts, swaps) but draws are not rendered yet.
 #include "kernel.h"
+void GameTimingThread();   // perf_tune.cpp
 #include "precise_wait.h"
 #include "gpu_vk.h"
 #include <atomic>
@@ -396,6 +397,7 @@ static int DisplayHz() {
 #endif
 void VblankThread() {
     { PerfName("vblank"); }
+    GameTimingThread();
     GuestCaller caller;
     auto tick = [&] { ++g_counter; DispatchInterrupt(caller, 0, 2); };
 #ifdef _WIN32

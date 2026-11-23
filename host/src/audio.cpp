@@ -1,6 +1,7 @@
 // Audio: XAudio render-driver clients (paced like real playback; output to speakers comes later) and XMA
 // decoder contexts (allocated, not yet decoded). Semantics follow Xenia's AudioSystem (BSD-3-Clause).
 #include "kernel.h"
+void GameTimingThread();   // perf_tune.cpp
 #include "audio_out.h"
 #include <atomic>
 #include <chrono>
@@ -36,6 +37,7 @@ struct GuestCaller {
 // another frame.
 void AudioWorker() {
     { PerfName("audio"); }
+    GameTimingThread();
     GuestCaller caller;
     for (;;) {
         int idx = -1;
