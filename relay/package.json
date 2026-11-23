@@ -1,0 +1,10 @@
+{
+  "name": "mau-relay",
+  "version": "1.0.0",
+  "description": "Madden Arcade Unleashed relay: pairs two players by code and passes their traffic",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.18.0" },
+  "license": "MIT"
+}
