@@ -406,3 +406,25 @@ void OnlineStartup() {
         if (RelayMode()) RelayStart(true, Relay().room, Relay().url);   // friends come in through the relay
     }
 }
+
+// Quick Match progress (the game's matchmaking step, called every frame while searching): logged when it changes.
+// Flags: 8813 waiting for lobby news, 8815 my player record shows the game, 8816 the game record arrived; 8796 state.
+extern "C" PPC_FUNC(__imp__sub_88F9E308);
+PPC_FUNC(sub_88F9E308) {
+    static uint64_t last = ~0ull;
+    uint32_t o = ctx.r3.u32;
+    uint64_t now = (uint64_t)ReadU32(o + 8796) << 32 | (uint32_t)(base[o + 8813] << 24 | base[o + 8814] << 16 | base[o + 8815] << 8 | base[o + 8816]);
+    if (now != last) { last = now; fprintf(stderr, "[net] quick match: state %u, flags %u%u%u%u, game %d\n", ReadU32(o + 8796), base[o + 8813], base[o + 8814], base[o + 8815], base[o + 8816], (int)ReadU32(o + 8808)); }
+    __imp__sub_88F9E308(ctx, base);
+}
+// The game-session helper's status ('idle' etc.), checked by Quick Match before it starts the game: logged on change.
+extern "C" PPC_FUNC(__imp__sub_8929DFE0);
+PPC_FUNC(sub_8929DFE0) {
+    uint32_t sel = ctx.r4.u32, o = ctx.r3.u32;
+    __imp__sub_8929DFE0(ctx, base);
+    if (OnlineMode()) {
+        static std::map<uint32_t, uint32_t> last; uint32_t r = ctx.r3.u32;
+        auto it = last.find(sel);
+        if (it == last.end() || it->second != r) { last[sel] = r; fprintf(stderr, "[net] game session status '%c%c%c%c' = %d (state %d)\n", sel >> 24, sel >> 16 & 255, sel >> 8 & 255, sel & 255, (int)r, (int)ReadU32(o + 27772)); }
+    }
+}

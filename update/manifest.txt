@@ -1,5 +1,5 @@
-version=1.0.30
-pack=update/pack-1.0.30.zip
-sha256=827693cfa9c761c5569c44ffb34f100438fd1c016605c06dfed62cbdc3ffc3f5
+version=1.0.31
+pack=update/pack-1.0.31.zip
+sha256=b615720d6836be708226070915a25bffe647c6eb68406c3f395485a718acbfd3
 rebuild=0
-notes=Online: connect with a code through the Madden Arcade Unleashed online server - no router or port setup needed
+notes=Online Quick Match: both players' records now show the match so the game accepts it

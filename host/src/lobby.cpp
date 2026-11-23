@@ -217,6 +217,7 @@ std::vector<std::string> Answer(const std::shared_ptr<Session>& sp, const std::s
         g->players = {other, sp}; other->game = g; s.game = g;
         fprintf(stderr, "[lobby] matched %s (host) with %s in game %s\n", other->Who().c_str(), s.Who().c_str(), g->name.c_str());
         SendTo(s, Pack("gqwk", {}));
+        for (auto& p : g->players) SendTo(*p, Record(*p));   // each player's own record now shows the game (G=)
         Notify(*g, "+mgm"); Notify(*g, "+ses");
         return {};
     }
