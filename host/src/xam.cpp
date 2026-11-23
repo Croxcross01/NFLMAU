@@ -20,7 +20,10 @@ static bool UserIn(uint32_t u) { return u < 4 && PadConnected(u); }
 // Online (Xbox Live) mode, being built: mods/online.txt holds the gamertag. Player 1 is then signed in to "Live".
 const std::string& OnlineGamertag() {
     static const std::string tag = [] {
-        std::string t; if (FILE* f = fopen("mods/online.txt", "r")) { char b[64] = ""; if (fgets(b, sizeof b, f)) t = b; fclose(f); }
+        // only for a game started with PLAY ONLINE: signed in to "Live", the game treats player 1 differently (profile,
+        // voice, online services), which upset regular games (throws to the wrong receiver) - so offline games never are
+        const char* on = getenv("MADDEN_ONLINE");
+        std::string t; if (on && !strcmp(on, "1")) if (FILE* f = fopen("mods/online.txt", "r")) { char b[64] = ""; if (fgets(b, sizeof b, f)) t = b; fclose(f); }
         while (!t.empty() && (t.back() == '\n' || t.back() == '\r' || t.back() == ' ')) t.pop_back();
         if (t.size() > 15) t.resize(15);
         if (!t.empty()) fprintf(stderr, "[live] online mode: signed in as %s\n", t.c_str());
@@ -74,6 +77,8 @@ IMP(XamUserCheckPrivilege) {
 // every setting comes back "not set" (source 0), so the game uses its defaults. Result: count, pointer to the
 // settings, then 40 bytes per setting (source, -, user/xuid, id, -, 16 data bytes).
 void CompleteOverlapped(uint32_t ov, uint32_t result, uint32_t length, uint32_t extError);
+// No headset support: voice is "not available" (the game then skips voice chat).
+IMP(XamVoiceCreate) { TRACE(XamVoiceCreate); if (ctx.r5.u32) WriteU32(ctx.r5.u32, 0); ctx.r3.u64 = 0x8007048F; }   // device not connected
 IMP(XamUserReadProfileSettings) {
     TRACE(XamUserReadProfileSettings);
     uint32_t user = ctx.r4.u32, nx = ctx.r5.u32, xuids = ctx.r6.u32, n = ctx.r7.u32, ids = ctx.r8.u32, pSize = ctx.r9.u32, buf = ctx.r10.u32;

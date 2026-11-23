@@ -48,6 +48,7 @@ static void Log(const std::wstring& t) {   // any thread
 #include "update.inc"
 #include "settings_page.inc"
 #include "mods_page.inc"
+static void OnPlay(bool online = false);   // PLAY: an offline game; the Online page starts one signed in to Xbox Live
 #include "online_page.inc"
 
 // ---------------------------------------------------------------- STFS (XBLA package) extraction
@@ -110,7 +111,7 @@ static bool ExtractPackage(const std::wstring& pkg, const std::wstring& outDir) 
 }
 
 // ---------------------------------------------------------------- running the game
-static void RunGame(std::wstring gameDir, bool trace) {
+static void RunGame(std::wstring gameDir, bool trace, bool online) {
     std::wstring host = g_exeDir + L"\\madden_host.exe";
     if (!FileExists(host)) { Log(L"madden_host.exe is missing - keep it in the same folder as this launcher.\n"); PostMessageW(g_wnd, WM_DONE, 1, 0); return; }
     // a package file gets extracted next to the launcher first
@@ -128,7 +129,7 @@ static void RunGame(std::wstring gameDir, bool trace) {
     HANDLE rd, wr; CreatePipe(&rd, &wr, &sa, 0); SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
     STARTUPINFOW si{sizeof si}; si.dwFlags = STARTF_USESTDHANDLES; si.hStdOutput = wr; si.hStdError = wr; si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
     PROCESS_INFORMATION pi{};
-    std::wstring cmd = L"\"" + host + L"\" --game \"" + gameDir + L"\" --save \"" + g_exeDir + L"\\save\" --settings \"" + SettingsPath() + L"\"" + (trace ? L" --trace" : L"");
+    std::wstring cmd = L"\"" + host + L"\" --game \"" + gameDir + L"\" --save \"" + g_exeDir + L"\\save\" --settings \"" + SettingsPath() + L"\"" + (trace ? L" --trace" : L"") + (online ? L" --online" : L"");
     Log(L"> " + cmd + L"\n");
     if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, g_exeDir.c_str(), &si, &pi)) {
         Log(L"Could not start madden_host.exe (error " + std::to_wstring(GetLastError()) + L")\n"); CloseHandle(rd); CloseHandle(wr); PostMessageW(g_wnd, WM_DONE, 1, 0); return;
@@ -148,7 +149,7 @@ static void RunGame(std::wstring gameDir, bool trace) {
     PostMessageW(g_wnd, WM_DONE, code, 0);
 }
 
-static void OnPlay() {
+static void OnPlay(bool online) {
     if (g_proc) { if (g_proc != INVALID_HANDLE_VALUE) TerminateProcess(g_proc, 1); return; }
     if (g_updating) { MessageBoxW(g_wnd, L"An update is being installed - PLAY is ready again in a moment.", L"Madden Arcade Unleashed", MB_ICONINFORMATION); return; }
     wchar_t p[MAX_PATH * 2]; GetWindowTextW(g_path, p, MAX_PATH * 2);
@@ -160,7 +161,7 @@ static void OnPlay() {
     SetWindowTextW(g_log, L"");
     g_statusText = L"Running..."; g_statusDot = RGB(47, 143, 255); g_proc = INVALID_HANDLE_VALUE; Repaint();
     bool trace = SendMessageW(g_trace, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    std::thread(RunGame, path, trace).detach();
+    std::thread(RunGame, path, trace, online).detach();
 }
 
 static void BrowseDir() {

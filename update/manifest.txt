@@ -1,5 +1,5 @@
-version=1.0.23
-pack=update/pack-1.0.23.zip
-sha256=41b7f12f27a2b95f1f3fcb472ff7aaa557e1240add1fef92a2fc7ed8c5a50f18
+version=1.0.24
+pack=update/pack-1.0.24.zip
+sha256=17924a269d933dd44a222b803fa3550ef5cccf1589a2b5bdf97c19128a2154ee
 rebuild=0
-notes=Passing fix: removed a per-frame player adjustment (added in 1.0.11) that could interfere with receivers and throws
+notes=Regular games are never signed in to Xbox Live (fixes passes not going to the receiver you pick); online games start with PLAY ONLINE on the Online page

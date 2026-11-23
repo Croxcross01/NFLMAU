@@ -7,7 +7,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
-enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, WM_HOST_READY = WM_APP + 60 };
+enum { ID_O_GTAG = 600, ID_O_ONLINE, ID_O_GTSAVE, ID_O_HOST, ID_O_STOP, ID_O_COPY, ID_O_CODE, ID_O_JOIN, ID_O_PLAY, WM_HOST_READY = WM_APP + 60 };
 static HWND g_oHead1, g_oHead2, g_oHostLbl, g_oJoinLbl, g_oCodeShow, g_oCodeEdit, g_oStatus, g_oHelp;
 static std::vector<HWND> g_onlineCtl;
 static std::wstring g_myCode;
@@ -171,6 +171,7 @@ static void CreateOnlinePage(HWND hw, HFONT f) {
     g_sOnline = OButton(hw, L"Play online (Xbox Live)", ID_O_ONLINE, f, BS_AUTOCHECKBOX);
     OButton(hw, L"Save", ID_O_GTSAVE, f);
     g_sGtInfo = OLabel(hw, L"", f);
+    OButton(hw, L"PLAY ONLINE", ID_O_PLAY, f);
     g_oHead2 = OLabel(hw, L"PLAY A FRIEND", f);
     g_oHostLbl = OLabel(hw, L"Host", f);
     OButton(hw, L"Host a game", ID_O_HOST, f);
@@ -181,7 +182,8 @@ static void CreateOnlinePage(HWND hw, HFONT f) {
     OButton(hw, L"Join", ID_O_JOIN, f);
     OButton(hw, L"Stop hosting / joining", ID_O_STOP, f);
     g_oStatus = OLabel(hw, L"", f);
-    g_oHelp = OLabel(hw, L"One of you hosts and sends the join code; the other types it under Join. Then both start the game and go to "
+    g_oHelp = OLabel(hw, L"Online games start with PLAY ONLINE (the Play page's PLAY is always an offline game). One of you hosts and sends the join code; the other "
+                         L"types it under Join. Then both press PLAY ONLINE and go to "
                          L"Play Now > Xbox Live and pick Quick Match. Every pair of players can host their own game this way - "
                          L"nobody else can get into yours without your code. The host's PC has to stay on while you play.", f);
     std::wstring code; wchar_t b[32] = L""; GetPrivateProfileStringW(L"online", L"hostcode", L"", b, 32, LauncherIni().c_str()); g_myCode = b;
@@ -191,7 +193,8 @@ static void LayoutOnlinePage(int x, int y, int right, int bottom) {
     MoveWindow(g_sGtag, x + 180, y, 220, 28, TRUE);
     MoveWindow(g_sOnline, x + 416, y + 2, 230, 24, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_O_GTSAVE), x + 656, y - 1, 90, 30, TRUE); y += 36;
-    MoveWindow(g_sGtInfo, x + 180, y, right - x - 180, 20, TRUE); y += 44;
+    MoveWindow(g_sGtInfo, x + 180, y, right - x - 180, 20, TRUE); y += 28;
+    MoveWindow(GetDlgItem(g_wnd, ID_O_PLAY), x + 180, y, 220, 36, TRUE); y += 52;
     MoveWindow(g_oHead2, x, y, 300, 20, TRUE); y += 32;
     MoveWindow(g_oHostLbl, x, y + 7, 160, 20, TRUE);
     MoveWindow(GetDlgItem(g_wnd, ID_O_HOST), x + 180, y, 150, 34, TRUE);
@@ -208,6 +211,10 @@ static void ShowOnlinePage(bool show) { for (HWND c : g_onlineCtl) ShowWindow(c,
 static bool OnlineCommand(WORD id, WORD code) {
     switch (id) {
     case ID_O_GTSAVE: SaveOnline(); return true;
+    case ID_O_PLAY:   // the game signed in to Xbox Live (PLAY on the Play page is always an offline game)
+        if (OnlineGet(L"gamertag").empty() || OnlineGet(L"enabled") != L"1") { OnlineStatus(L"Pick a gamertag, tick Play online and press Save first."); return true; }
+        OnPlay(true);
+        return true;
     case ID_O_GTAG: case ID_O_ONLINE: case ID_O_CODE: return true;
     case ID_O_HOST:
         if (OnlineGet(L"gamertag").empty() || OnlineGet(L"enabled") != L"1") { OnlineStatus(L"Pick a gamertag, tick Play online and press Save first."); return true; }

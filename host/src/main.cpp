@@ -247,6 +247,7 @@ int main(int argc, char** argv) {
         if (a == "--game" && i + 1 < argc) gameDir = argv[++i];
         else if (a == "--image" && i + 1 < argc) imgPath = argv[++i];
         else if (a == "--save" && i + 1 < argc) SetEnvDefault("MADDEN_SAVE_DIR", argv[++i]);
+        else if (a == "--online") SetEnvDefault("MADDEN_ONLINE", "1");   // PLAY ONLINE: signed in to Xbox Live (else always offline)
         else if (a == "--trace") g_trace = true;
         else if (a == "--settings" && i + 1 < argc) settingsPath = argv[++i];
         else if (a == "--headless") settingsPath = "";
