@@ -187,6 +187,7 @@ inline bool LinkGame(const std::wstring& install, Sink& s, int pct) {
       if (h != INVALID_HANDLE_VALUE) { do { rsp += "\"obj/" + N(fd.cFileName) + "\"\n"; count++; } while (FindNextFileW(h, &fd)); FindClose(h); } }
     if (count < 10) { s.log(L"the compiled game is missing\n"); return false; }
     std::string lib = N(pack) + "/lib"; for (char& c : lib) if (c == '\\') c = '/';
+    if (IsFile(pack + L"\\lib\\host_res.o")) rsp += "\"" + lib + "/host_res.o\"\n";   // version info and manifest for madden_host.exe
     rsp += "\"" + lib + "/libmadden_host.a\"\n-L\"" + lib + "\"\n";
     rsp += "-lglslang\n-lMachineIndependent\n-lGenericCodeGen\n-lOSDependent\n-lSPIRV\n-lglslang-default-resource-limits\n-lavcodec\n-lavutil\n-luser32\n-lgdi32\n-lole32\n-lbcrypt\n-lwinmm\n";
     WriteText(cache + L"\\link.rsp", rsp);

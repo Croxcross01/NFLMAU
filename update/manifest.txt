@@ -1,5 +1,5 @@
-version=1.0.17
-pack=update/pack-1.0.17.zip
-sha256=ff5269f5278ca8f22fa5626841aa34917b1679d564eec24423c439150cf8d5b1
+version=1.0.18
+pack=update/pack-1.0.18.zip
+sha256=622433a54879875bd9d31c4c6195eda38003c08c5796dadbe20462eec5ea29fd
 rebuild=0
-notes=New Online page: host a game for a friend or join theirs with a join code (Xbox Live mode)
+notes=Program details (publisher, version) added to every .exe so antivirus can identify them
