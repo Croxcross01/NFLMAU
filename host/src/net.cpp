@@ -5,6 +5,7 @@
 #include "kernel.h"
 #include "net_win.h"
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -25,7 +26,23 @@ thread_local int g_err = 0;
 void W16(uint32_t a, uint16_t v) { g_base[a] = v >> 8; g_base[a + 1] = v & 0xFF; }
 uint16_t R16(uint32_t a) { return (uint16_t)(g_base[a] << 8 | g_base[a + 1]); }
 std::atomic<int> g_logged{0};
-bool Log() { return g_logged.fetch_add(1) < 400; }
+bool Log() { return g_logged.fetch_add(1) < 400; }   // traffic dumps (the lobby uses most of these)
+std::atomic<int> g_info{0};
+bool Info() { return g_info.fetch_add(1) < 3000; }   // socket events (UDP sockets, binds, player addresses)
+// Match traffic counters, printed every few seconds while they change.
+std::atomic<uint64_t> g_udpOut{0}, g_udpIn{0}, g_udpOutB{0}, g_udpInB{0};
+void UdpStats() {
+    static std::atomic<bool> on{false};
+    if (on.exchange(true)) return;
+    std::thread([] {
+        uint64_t lo = 0, li = 0;
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            uint64_t o = g_udpOut, i = g_udpIn;
+            if (o != lo || i != li) { fprintf(stderr, "[net] match traffic: sent %llu packets (%llu KB), received %llu packets (%llu KB)\n", (unsigned long long)o, (unsigned long long)(g_udpOutB / 1024), (unsigned long long)i, (unsigned long long)(g_udpInB / 1024)); lo = o; li = i; }
+        }
+    }).detach();
+}
 std::string Ip(uint32_t ip) { char b[20]; snprintf(b, sizeof b, "%u.%u.%u.%u", ip >> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255); return b; }
 void Hex(const char* what, const uint8_t* p, int n) {   // first bytes of traffic, for working out the protocol
     if (!Log()) return;
@@ -137,7 +154,7 @@ IMP(NetDll_socket) {   // (caller, af, type, protocol); VDP (254) is UDP with a 
     int af = ctx.r4.s32, type = ctx.r5.s32, proto = ctx.r6.s32;
     if (proto == 254) proto = 17;
     int s = Ret(ctx, hn::Socket(af, type, proto));
-    if (Log()) fprintf(stderr, "[net] socket(af %d, type %d, proto %d) -> %d\n", af, type, ctx.r6.s32, s);
+    if (type != 1 ? Info() : Log()) fprintf(stderr, "[net] socket(af %d, type %d, proto %d) -> %d\n", af, type, ctx.r6.s32, s);
 }
 IMP(NetDll_closesocket) { TRACE(NetDll_closesocket); Ret(ctx, hn::Close(ctx.r4.s32)); }
 IMP(NetDll_shutdown) { TRACE(NetDll_shutdown); Ret(ctx, hn::Shutdown(ctx.r4.s32, ctx.r5.s32)); }
@@ -169,7 +186,7 @@ IMP(NetDll_bind) {
     uint32_t ip; uint16_t port; ReadAddr(ctx.r5.u32, ip, port);
     int r = hn::Bind(ctx.r4.s32, ip, port);
     if (r < 0 && port) { r = hn::Bind(ctx.r4.s32, ip, 0); }   // port taken (a second copy on this PC): any port
-    if (Log()) fprintf(stderr, "[net] bind(%d, %s:%u) -> %d\n", ctx.r4.s32, Ip(ip).c_str(), port, r);
+    if (Info()) fprintf(stderr, "[net] bind(%d, %s:%u) -> %d\n", ctx.r4.s32, Ip(ip).c_str(), port, r);
     Ret(ctx, r);
 }
 IMP(NetDll_connect) {
@@ -203,12 +220,14 @@ IMP(NetDll_sendto) {   // (caller, s, buf, len, flags, to, tolen)
         uint32_t mip = 0; uint16_t mport = 0; hn::SockName(ctx.r4.s32, &mip, &mport);
         int n = ctx.r6.s32;
         Ret(ctx, RelaySendUdp(mport, port, g_base + ctx.r5.u32, n) ? n : -1);
-        if (Log()) fprintf(stderr, "[net] sendto (relay) :%u -> :%u %d bytes\n", mport, port, n);
+        g_udpOut++; g_udpOutB += n; UdpStats();
+        { static std::atomic<int> k{0}; if (k++ < 5) fprintf(stderr, "[net] match packet to the other player (through the relay) :%u -> :%u, %d bytes\n", mport, port, n); }
         return;
     }
     { std::lock_guard<std::mutex> l(g_obsM); auto it = g_observedPort.find(ip); if (it != g_observedPort.end()) port = it->second; }   // through the peer's router
     int r = Ret(ctx, hn::SendTo(ctx.r4.s32, g_base + ctx.r5.u32, ctx.r6.s32, ctx.r7.s32, ip, port));
-    if (r > 0 && Log()) fprintf(stderr, "[net] sendto %s:%u\n", Ip(ip).c_str(), port);
+    if (r > 0 && (ip >> 24) != 127) { g_udpOut++; g_udpOutB += r; UdpStats(); }
+    if (r > 0 && Info() && g_udpOut < 6) fprintf(stderr, "[net] sendto %s:%u\n", Ip(ip).c_str(), port);
     if (r > 0) Hex("sendto", g_base + ctx.r5.u32, r);
 }
 IMP(NetDll_recvfrom) {   // (caller, s, buf, len, flags, from, fromlen*)
@@ -217,6 +236,7 @@ IMP(NetDll_recvfrom) {   // (caller, s, buf, len, flags, from, fromlen*)
     int r = Ret(ctx, hn::RecvFrom(ctx.r4.s32, g_base + ctx.r5.u32, ctx.r6.s32, ctx.r7.s32, &ip, &port));
     if (r >= 0) WriteAddr(ctx.r8.u32, ctx.r9.u32, ip, port);
     if (r > 0 && (ip >> 24) != 127) { std::lock_guard<std::mutex> l(g_obsM); g_observedPort[ip] = port; }
+    if (r > 0 && (ip != 0x7F000001)) { g_udpIn++; g_udpInB += r; UdpStats(); if (g_udpIn < 6) fprintf(stderr, "[net] match packet from %s:%u, %d bytes\n", Ip(ip).c_str(), port, r); }
     if (r > 0) Hex("recvfrom", g_base + ctx.r5.u32, r);
 }
 IMP(NetDll_getsockname) { TRACE(NetDll_getsockname); uint32_t ip = 0; uint16_t p = 0; if (Ret(ctx, hn::SockName(ctx.r4.s32, &ip, &p)) >= 0) WriteAddr(ctx.r5.u32, ctx.r6.u32, ip, p); }
@@ -255,7 +275,42 @@ IMP(NetDll_WSAGetOverlappedResult) {   // (caller, s, overlapped*, transferred*,
     if (ctx.r8.u32) WriteU32(ctx.r8.u32, 0);
     ctx.r3.u64 = ReadU32(ov) == 0 ? 1 : 0;
 }
-IMP(NetDll_WSARecvFrom) { TRACE(NetDll_WSARecvFrom); if (Log()) fprintf(stderr, "[net] WSARecvFrom not supported yet\n"); g_err = kWsaNotSock; ctx.r3.u64 = 0xFFFFFFFF; }
+// WSARecvFrom(caller, s, WSABUF* {len, buf}, count, received*, flags*, from*, fromlen*, overlapped* [stack], completion)
+static void GotFrom(uint32_t ip, uint16_t port, int r) {
+    if (r <= 0 || ip == 0x7F000001) return;
+    if ((ip >> 24) != 127) { std::lock_guard<std::mutex> l(g_obsM); g_observedPort[ip] = port; }
+    g_udpIn++; g_udpInB += r; UdpStats();
+    if (g_udpIn < 6) fprintf(stderr, "[net] match packet from %s:%u, %d bytes\n", Ip(ip).c_str(), port, r);
+}
+IMP(NetDll_WSARecvFrom) {
+    TRACE(NetDll_WSARecvFrom);
+    int s = ctx.r4.s32; uint32_t bufs = ctx.r5.u32, pRecv = ctx.r7.u32, pFlags = ctx.r8.u32, from = ctx.r9.u32, fromLen = ctx.r10.u32;
+    uint32_t ov = ReadU32(ctx.r1.u32 + 0x54);
+    uint32_t len = ReadU32(bufs), buf = ReadU32(bufs + 4);
+    { static std::atomic<int> k{0}; if (k++ < 3) fprintf(stderr, "[net] WSARecvFrom(%d, %u bytes, overlapped %08X)\n", s, len, ov); }
+    if (!ov) {
+        uint32_t ip = 0; uint16_t port = 0;
+        int r = Ret(ctx, hn::RecvFrom(s, g_base + buf, (int)len, 0, &ip, &port));
+        if (r >= 0) { WriteAddr(from, fromLen, ip, port); if (pRecv) WriteU32(pRecv, r); if (pFlags) WriteU32(pFlags, 0); GotFrom(ip, port, r); ctx.r3.u64 = 0; }
+        return;
+    }
+    WriteU32(ov, 0x103); WriteU32(ov + 4, 0);
+    std::thread([s, len, buf, ov, from, fromLen] {
+        int r = -1; uint32_t ip = 0; uint16_t port = 0;
+        for (;;) {   // the socket may be non-blocking: wait until a packet is there (or the socket is closed)
+            std::vector<int> rd{s};
+            int n = hn::Select(&rd, nullptr, nullptr, 1000);
+            if (n < 0) break;
+            if (n == 0 || rd.empty()) { if (ReadU32(ov) != 0x103) return; continue; }
+            r = hn::RecvFrom(s, g_base + buf, (int)len, 0, &ip, &port);
+            break;
+        }
+        if (r >= 0) { WriteAddr(from, fromLen, ip, port); GotFrom(ip, port, r); }
+        WriteU32(ov + 4, r > 0 ? (uint32_t)r : 0); WriteU32(ov, r >= 0 ? 0 : 0xC0000001);
+        if (uint32_t ev = ReadU32(ov + 0x10)) KSetEventHandle(ev, true);
+    }).detach();
+    g_err = kWsaIoPending; ctx.r3.u64 = 0xFFFFFFFF;
+}
 
 // ---- XNet: the Xbox's secure layer. Between our PCs the "secure" addresses are just the real ones.
 // XNADDR: ina(4) inaOnline(4) wPortOnline(2) abEnet[6] abOnline[20]
@@ -292,7 +347,7 @@ IMP(NetDll_XNetXnAddrToInAddr) {
         out = mine ? 0x7F000001 : RelayPeerIp();
     }
     if (ctx.r6.u32) WriteU32(ctx.r6.u32, out);
-    if (Log()) fprintf(stderr, "[net] player address %s / %s -> %s\n", Ip(lan).c_str(), Ip(online).c_str(), Ip(out).c_str());
+    if (Info()) fprintf(stderr, "[net] player address %s / %s -> %s\n", Ip(lan).c_str(), Ip(online).c_str(), Ip(out).c_str());
     ctx.r3.u64 = 0;
 }
 IMP(NetDll_XNetInAddrToXnAddr) {   // (caller, ina, xnaddr*, xnkid*)

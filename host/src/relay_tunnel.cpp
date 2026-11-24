@@ -97,7 +97,8 @@ void OnMessage(const std::string& m) {
                 g_udpFrom[from] = s;
             } else s = it->second;
         }
-        hn::SendTo(s, m.data() + 5, (int)m.size() - 5, 0, kLoop, to);
+        int r = hn::SendTo(s, m.data() + 5, (int)m.size() - 5, 0, kLoop, to);
+        { static std::atomic<int> k{0}; if (k++ < 5) fprintf(stderr, "[relay] match packet from the other player :%u -> :%u, %d bytes (handed to the game: %d)\n", from, to, (int)m.size() - 5, r); }
         break; }
     }
 }

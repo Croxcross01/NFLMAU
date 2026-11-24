@@ -1,5 +1,5 @@
-version=1.0.33
-pack=update/pack-1.0.33.zip
-sha256=033b4b8a9d2dc3a92f481600b50313d5ebe0cf824b4d52662749207e11768201
+version=1.0.34
+pack=update/pack-1.0.34.zip
+sha256=c57fb06dddcbfd9ce825b725e4f034bd407fd981358692e49e9aa2ccbe20a6e6
 rebuild=0
-notes=Online: the roster check no longer stops Quick Match; Host makes a new code every time
+notes=Online: your game now receives the other player's match data (team select and game play)
