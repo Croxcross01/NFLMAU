@@ -1,5 +1,5 @@
-version=1.0.32
-pack=update/pack-1.0.32.zip
-sha256=189cfedaec054337ecf25b5b85a404b86ad751d8f422f56aff31cff62f8fec5f
+version=1.0.33
+pack=update/pack-1.0.33.zip
+sha256=033b4b8a9d2dc3a92f481600b50313d5ebe0cf824b4d52662749207e11768201
 rebuild=0
-notes=Online Quick Match: no more 'roster update required' - everyone plays the same 2027 roster
+notes=Online: the roster check no longer stops Quick Match; Host makes a new code every time

@@ -557,7 +557,8 @@ static bool OnlineCommand(WORD id, WORD code) {
     case ID_O_HOST:
         if (OnlineGet(L"gamertag").empty() || OnlineGet(L"enabled") != L"1") { OnlineStatus(L"Pick a gamertag, tick Play online and press Save first."); return true; }
         if (!RelayUrl().empty()) {   // through the online server: a room code, nothing to set up
-            std::wstring code = OnlineGet(L"roomcode"); if (RoomOf(code).empty()) { code = NewRoomCode(); OnlineSet(L"roomcode", code); }
+            std::wstring code = NewRoomCode();   // a new code every time you host, so an old code can't get into your game
+            OnlineSet(L"roomcode", code);
             CreateDirectoryW(OnlineDir().c_str(), nullptr);
             bc::WriteText(OnlineDir() + L"\\online_host.txt", "relay=" + RoomOf(code) + "\nurl=" + bc::N(RelayUrl()) + "\n");
             DeleteFileW((OnlineDir() + L"\\online_server.txt").c_str());
