@@ -1,5 +1,5 @@
-version=1.0.31
-pack=update/pack-1.0.31.zip
-sha256=b615720d6836be708226070915a25bffe647c6eb68406c3f395485a718acbfd3
+version=1.0.32
+pack=update/pack-1.0.32.zip
+sha256=189cfedaec054337ecf25b5b85a404b86ad751d8f422f56aff31cff62f8fec5f
 rebuild=0
-notes=Online Quick Match: both players' records now show the match so the game accepts it
+notes=Online Quick Match: no more 'roster update required' - everyone plays the same 2027 roster

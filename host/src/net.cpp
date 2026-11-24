@@ -428,3 +428,34 @@ PPC_FUNC(sub_8929DFE0) {
         if (it == last.end() || it->second != r) { last[sel] = r; fprintf(stderr, "[net] game session status '%c%c%c%c' = %d (state %d)\n", sel >> 24, sel >> 16 & 255, sel >> 8 & 255, sel & 255, (int)r, (int)ReadU32(o + 27772)); }
     }
 }
+
+// Online roster check. When a match is found the game asks the lobby for osdk_roster.cfg (ROSTER_URL, ROSTER_VER: EA's
+// latest online roster) and asks its roster code whether this PC's roster is current; if not it shows "A roster update
+// is available" and won't start the match. EA's roster server is gone and everyone here plays the same 2027 roster
+// (the launcher keeps it the same on every PC), so the check is answered "current".
+static void RosterIsCurrent(PPCContext& ctx, uint8_t* base) {
+    (void)base;
+    fprintf(stderr, "[net] online roster check: this PC's roster is current\n");
+    ctx.r3.u64 = 1;
+}
+extern "C" PPC_FUNC(__imp__sub_88FBAF50);
+PPC_FUNC(sub_88FBAF50) {
+    if (!OnlineMode()) { __imp__sub_88FBAF50(ctx, base); return; }
+    PPCFunc** entry = nullptr; PPCFunc* saved = nullptr;
+    uint32_t holder = ReadU32(0x8854C608);   // the roster code (global object)
+    if (holder) {
+        PPCContext c = ctx; c.r3.u64 = holder;
+        uint32_t get = ReadU32(ReadU32(holder));
+        if (get >= PPC_CODE_BASE && get < PPC_CODE_BASE + PPC_CODE_SIZE) {
+            (PPC_LOOKUP_FUNC(base, get))(c, base);
+            uint32_t obj = c.r3.u32;
+            uint32_t check = obj ? ReadU32(ReadU32(obj) + 8) : 0;
+            fprintf(stderr, "[net] roster check function %08X (object %08X)\n", check, obj);
+            if (check >= PPC_CODE_BASE && check < PPC_CODE_BASE + PPC_CODE_SIZE) {
+                entry = &PPC_LOOKUP_FUNC(base, check); saved = *entry; *entry = RosterIsCurrent;
+            }
+        }
+    }
+    __imp__sub_88FBAF50(ctx, base);
+    if (entry) *entry = saved;
+}
