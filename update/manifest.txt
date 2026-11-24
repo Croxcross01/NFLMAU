@@ -1,5 +1,5 @@
-version=1.0.36
-pack=update/pack-1.0.36.zip
-sha256=8cc78c0b46a48c3d70f08ad07fa7e207d73b68fc9d50d8893b41451038303a72
+version=1.0.37
+pack=update/pack-1.0.37.zip
+sha256=3bd34ac4bfa8e20d01b89c99d96ef8207595ae650854c606bd5a94c2b4259726
 rebuild=0
-notes=Online Quick Match: the hosting side no longer keeps searching once both players are in
+notes=Online: more detail in the log about the match session (to fix team select not syncing)

@@ -533,3 +533,27 @@ PPC_FUNC(sub_88D815D8) {
     __imp__sub_88D815D8(ctx, base);
     if (OnlineMode()) HelperState(o, "update");
 }
+// Which local player an Xbox Live session is for (by gamertag id): logged in online games while working this out.
+extern "C" PPC_FUNC(__imp__sub_88D728E8);
+PPC_FUNC(sub_88D728E8) {
+    uint32_t a = ctx.r3.u32, b = ctx.r4.u32;
+    __imp__sub_88D728E8(ctx, base);
+    if (OnlineMode()) {
+        static std::atomic<int> k{0};
+        if (k++ < 12) {
+            uint32_t tbl = ReadU32(0x89528978);
+            std::string t;
+            char x[48];
+            for (int i = 0; i < 4 && tbl; i++) { snprintf(x, sizeof x, " [%d] %08X%08X", i, ReadU32(tbl + 96 + 32 * i), ReadU32(tbl + 100 + 32 * i)); t += x; }
+            snprintf(x, sizeof x, "%08X%08X", b ? ReadU32(b) : 0, b ? ReadU32(b + 4) : 0);
+            fprintf(stderr, "[net] session player lookup (name %08X, id %s) -> %d; players:%s\n", a, x, ctx.r3.s32, t.c_str());
+        }
+    }
+}
+// Creating the Xbox Live session for a match: logged.
+extern "C" PPC_FUNC(__imp__sub_88D80F70);
+PPC_FUNC(sub_88D80F70) {
+    uint32_t o = ctx.r3.u32, r4 = ctx.r4.u32, r5 = ctx.r5.u32;
+    __imp__sub_88D80F70(ctx, base);
+    if (OnlineMode()) fprintf(stderr, "[net] xbox session create (helper %08X, host %u, %08X) -> %d, state %u\n", o, r4, r5, ctx.r3.s32, ReadU32(o + 116));
+}
