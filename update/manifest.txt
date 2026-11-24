@@ -1,5 +1,5 @@
-version=1.0.39
-pack=update/pack-1.0.39.zip
-sha256=8fc143354dfa8956d631f6798f2393d22a5c0404223788450f9eb8cbbf9d8958
+version=1.0.40
+pack=update/pack-1.0.40.zip
+sha256=e716b41a14e4f62a164d4bbf7cfe368cc4612d5c866e168b83ea4505524d4724
 rebuild=0
-notes=Smoother on high-refresh / G-Sync / FreeSync screens: if the screen doesn't keep a steady refresh, the game keeps its own 60 Hz timing
+notes=Online: the two games' match data now goes to each other (it was going back to the same PC)

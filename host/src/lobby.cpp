@@ -77,11 +77,14 @@ void SendTo(Session& s, const std::string& m) {
     if (m.compare(0, 4, "mau?") != 0 && m.compare(0, 4, "~png") != 0) fprintf(stderr, "[lobby] #%d <- %s %s\n", s.id, Printable(m.substr(0, 4)).c_str(), Printable(m.substr(12)).c_str());
 }
 bool Loopback(uint32_t ip) { return ip == 0x7F000001; }   // this PC's own game (relay players come from 127.0.0.2)
+// Relay games: the friend's game reaches this lobby from 127.0.0.2, but is shown as 192.0.2.2 (the game treats any
+// 127.x address as this PC); see RelayPeerIp in relay_tunnel.cpp.
+uint32_t Shown(uint32_t ip) { return RelayMode() && ip == 0x7F000002 ? 0xC0000202 : ip; }
 // Where `who` can be reached from `viewer`'s PC: the host's own game shows up as 127.0.0.1 here, so others get
 // the host's internet address instead.
 std::string AddrFor(const Session& who, const Session& viewer) {
     if (Loopback(who.ip) && !Loopback(viewer.ip)) return IpText(g_hostPublic ? g_hostPublic : who.lanIp);
-    return IpText(who.ip);
+    return IpText(Shown(who.ip));
 }
 std::string LanFor(const Session& who, const Session& viewer) {
     if (RelayMode()) return AddrFor(who, viewer);   // relay games have no home-network addresses
@@ -91,7 +94,7 @@ std::string LanFor(const Session& who, const Session& viewer) {
 
 std::string Record(const Session& s, const char* cmd = "+who") {
     return Pack(cmd, {{"I", std::to_string(s.id)}, {"M", s.name}, {"N", s.Who()}, {"MA", s.maddr},
-                      {"A", IpText(s.ip)}, {"LA", IpText(s.lanIp ? s.lanIp : s.ip)}, {"G", s.game ? std::to_string(s.game->ident) : "0"},
+                      {"A", IpText(Shown(s.ip))}, {"LA", IpText(RelayMode() ? Shown(s.ip) : s.lanIp ? s.lanIp : s.ip)}, {"G", s.game ? std::to_string(s.game->ident) : "0"},
                       {"P", "1"}, {"F", "U"}, {"LO", "enUS"}, {"PRES", "1"}, {"X", ""}});
 }
 // The game record as one player sees it (SELF, and everyone's address from that player's PC).
@@ -140,7 +143,7 @@ void LeaveGame(Session& s) {   // g_m held
 
 std::vector<std::string> Answer(const std::shared_ptr<Session>& sp, const std::string& cmd, std::map<std::string, std::string>& f) {
     Session& s = *sp;
-    std::string ip = IpText(s.ip);
+    std::string ip = IpText(Shown(s.ip));
     if (cmd == "@dir") return {Pack("@dir", {{"ADDR", "127.0.0.1"}, {"PORT", std::to_string(kLobbyPort)}, {"SESS", std::to_string(1000000000 + rand() % 900000000)},
                                              {"MASK", Hex128()}, {"XIP", ip}})};   // XIP: the player's own internet address, as this server sees it
     if (cmd == "mau?") {   // the launcher asking who is here (not the game): host first, then everyone logged in
@@ -318,7 +321,7 @@ void Listen(uint16_t port) {
 void StartLocalLobby() {
     static bool started = false; if (started) return; started = true;
     if (RelayMode()) {   // through the relay: friends arrive on this PC (127.0.0.2) and see the host as 127.0.0.3
-        g_hostPublic = 0x7F000003;
+        g_hostPublic = 0xC0000203;
         fprintf(stderr, "[lobby] hosting for friends through the relay server\n");
     } else if (FILE* fh = fopen("mods/online_host.txt", "r")) {
         g_listenIp = 0; char b[128];

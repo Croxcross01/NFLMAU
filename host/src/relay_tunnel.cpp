@@ -151,7 +151,12 @@ void RelayStart(bool host, const std::string& room, const std::string& url) {
     fprintf(stderr, "[relay] online through the relay server, room %s (%s)\n", room.c_str(), host ? "hosting" : "joining");
 }
 bool RelayActive() { return g_on; }
-uint32_t RelayPeerIp() { return g_host ? kFriendOnHost : kHostOnFriend; }   // where the other player appears
+// Where the other player appears to the game. Not a 127.x address: the game's network code treats every 127.x
+// address as "this PC" and sent its match packets to itself. 192.0.2.x is reserved for examples and never used on a
+// real network; packets the game sends there go through the relay (net.cpp), and packets from the other player
+// (delivered from 127.0.0.2 / .3 on this PC) are reported as coming from it.
+uint32_t RelayPeerIp() { return g_host ? 0xC0000202 : 0xC0000203; }
+uint32_t RelayDeliveryIp() { return g_host ? kFriendOnHost : kHostOnFriend; }
 // a match packet from our game to the other player
 bool RelaySendUdp(uint16_t fromPort, uint16_t toPort, const void* data, int n) {
     std::string m(1, '\4'); Put16(m, fromPort); Put16(m, toPort); m.append((const char*)data, n);
@@ -178,5 +183,6 @@ bool RelaySyncTake(const std::string&, std::string&, int) { return false; }
 void RelayStart(bool, const std::string&, const std::string&) {}
 bool RelayActive() { return false; }
 uint32_t RelayPeerIp() { return 0; }
+uint32_t RelayDeliveryIp() { return 0; }
 bool RelaySendUdp(uint16_t, uint16_t, const void*, int) { return false; }
 #endif

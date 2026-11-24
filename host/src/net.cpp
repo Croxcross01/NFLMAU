@@ -78,6 +78,9 @@ void StartLocalLobby();   // lobby.cpp
 void RelayStart(bool host, const std::string& room, const std::string& url);   // relay_tunnel.cpp
 bool RelayActive();
 uint32_t RelayPeerIp();
+uint32_t RelayDeliveryIp();
+// relay games: a packet delivered from the other player (127.0.0.2 / .3 here) is shown to the game as from them
+static inline void RelaySource(uint32_t& ip) { if (ip && ip == RelayDeliveryIp() && RelayActive()) ip = RelayPeerIp(); }
 bool RelaySendUdp(uint16_t fromPort, uint16_t toPort, const void* data, int n);
 // Online through the relay server (the launcher's codes when a relay is set up): hosting writes online_host.txt
 // "relay=ROOM" + "url=URL", joining writes online_server.txt "relay ROOM URL".
@@ -234,6 +237,7 @@ IMP(NetDll_recvfrom) {   // (caller, s, buf, len, flags, from, fromlen*)
     TRACE(NetDll_recvfrom);
     uint32_t ip = 0; uint16_t port = 0;
     int r = Ret(ctx, hn::RecvFrom(ctx.r4.s32, g_base + ctx.r5.u32, ctx.r6.s32, ctx.r7.s32, &ip, &port));
+    RelaySource(ip);
     if (r >= 0) WriteAddr(ctx.r8.u32, ctx.r9.u32, ip, port);
     if (r > 0 && (ip >> 24) != 127) { std::lock_guard<std::mutex> l(g_obsM); g_observedPort[ip] = port; }
     if (r > 0 && (ip != 0x7F000001)) { g_udpIn++; g_udpInB += r; UdpStats(); if (g_udpIn < 6) fprintf(stderr, "[net] match packet from %s:%u, %d bytes\n", Ip(ip).c_str(), port, r); }
@@ -291,6 +295,7 @@ IMP(NetDll_WSARecvFrom) {
     if (!ov) {
         uint32_t ip = 0; uint16_t port = 0;
         int r = Ret(ctx, hn::RecvFrom(s, g_base + buf, (int)len, 0, &ip, &port));
+        RelaySource(ip);
         if (r >= 0) { WriteAddr(from, fromLen, ip, port); if (pRecv) WriteU32(pRecv, r); if (pFlags) WriteU32(pFlags, 0); GotFrom(ip, port, r); ctx.r3.u64 = 0; }
         return;
     }
@@ -303,6 +308,7 @@ IMP(NetDll_WSARecvFrom) {
             if (n < 0) break;
             if (n == 0 || rd.empty()) { if (ReadU32(ov) != 0x103) return; continue; }
             r = hn::RecvFrom(s, g_base + buf, (int)len, 0, &ip, &port);
+            RelaySource(ip);
             break;
         }
         if (r >= 0) { WriteAddr(from, fromLen, ip, port); GotFrom(ip, port, r); }
@@ -344,7 +350,7 @@ IMP(NetDll_XNetXnAddrToInAddr) {
     uint32_t lan = ReadU32(ctx.r4.u32), online = ReadU32(ctx.r4.u32 + 4), out = online ? online : lan;
     if (online && lan && online == g_publicIp.load()) out = lan;
     if (RelayMode()) {   // relay games: this PC's own player -> 127.0.0.1, the other player -> where the relay delivers them
-        uint32_t v = online ? online : lan, selfOnHost = 0x7F000002;   // the lobby shows a joiner its own address as 127.0.0.2
+        uint32_t v = online ? online : lan, selfOnHost = 0xC0000202;   // the lobby shows a joiner its own address as 192.0.2.2
         bool mine = v == MyRelayId() || lan == MyRelayId() || v == 0x7F000001 || (!Relay().host && v == selfOnHost);
         out = mine ? 0x7F000001 : RelayPeerIp();
     }
