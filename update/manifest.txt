@@ -1,5 +1,5 @@
-version=1.0.38
-pack=update/pack-1.0.38.zip
-sha256=d0072c6337512f8d9b60256162d19484b70201908867e4a04f5679c923905ba6
+version=1.0.39
+pack=update/pack-1.0.39.zip
+sha256=8fc143354dfa8956d631f6798f2393d22a5c0404223788450f9eb8cbbf9d8958
 rebuild=0
-notes=Online: the match's Xbox Live session is now created (needed before the two games connect for team select)
+notes=Smoother on high-refresh / G-Sync / FreeSync screens: if the screen doesn't keep a steady refresh, the game keeps its own 60 Hz timing

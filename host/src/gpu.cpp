@@ -415,13 +415,22 @@ void VblankThread() {
     else if (hz > 62) { int k = (int)std::lround(hz / 60.0); if (k >= 2 && std::abs(hz - 60 * k) <= 2 * k) per = k; }
     bool lockToDisplay = dwmFlush && per > 0 && !getenv("MADDEN_FREE_VBLANK");
     fprintf(stderr, "[gpu] display %d Hz - vblank %s\n", hz, lockToDisplay ? (per == 1 ? "locked to the display refresh" : "locked to the display (every few refreshes)") : "from a 60 Hz timer");
-    int fastReturns = 0;
+    int fastReturns = 0, slowGroups = 0, groups = 0;
+    const double expectMs = 1000.0 * per / hz;   // one guest vblank (about 16.7 ms)
     while (lockToDisplay) {   // falls back to the timer if DwmFlush stops waiting (composition off) or stalls
         auto t0 = std::chrono::steady_clock::now();
         for (int i = 0; i < per; i++) dwmFlush();
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         if (ms < 4.0 * per) { if (++fastReturns > 30) { fprintf(stderr, "[gpu] vblank: display sync not waiting - using the 60 Hz timer\n"); break; } PreciseWait(16667 - (int)(ms * 1000)); }
         else fastReturns = 0;
+        // Windows doesn't always refresh the desktop at the screen's rate (variable refresh - G-Sync / FreeSync -,
+        // high-refresh screens in fullscreen): then the wait above is much longer than a refresh and the game would
+        // run slow (15-25 fps). If that keeps happening, the vblank comes from the 60 Hz timer instead.
+        if (ms > expectMs * 1.35 && ms <= 100.0) slowGroups++;
+        if (++groups == 120) {
+            if (slowGroups > 24) { fprintf(stderr, "[gpu] vblank: the display refreshes slower than %d Hz (variable refresh?) - using the 60 Hz timer\n", hz); break; }
+            groups = slowGroups = 0;
+        }
         if (ms > 100.0) {   // window hidden / display asleep: keep the game going on the timer for a while
             auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2), next = std::chrono::steady_clock::now();
             while (std::chrono::steady_clock::now() < until) { next += std::chrono::microseconds(16667); PreciseSleepUntil(next); tick(); }
