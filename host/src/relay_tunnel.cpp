@@ -11,6 +11,8 @@
 #include "ws_client.h"
 #include "net_win.h"
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <map>
 #include <mutex>
@@ -28,6 +30,8 @@ wsc::Client* g_ws = nullptr;
 std::map<uint32_t, int> g_streams;     // id -> local TCP socket
 std::map<uint16_t, int> g_udpFrom;     // from-port -> socket bound to the other player's address (delivery)
 std::atomic<uint32_t> g_nextId{1};
+// Small named messages between the two games (5 SYNC: key length(1) key value), e.g. the lineup picks.
+std::mutex g_syncM; std::condition_variable g_syncCv; std::map<std::string, std::string> g_sync;
 
 void Put16(std::string& m, uint16_t v) { m += (char)(v >> 8); m += (char)(v & 255); }
 void Put32(std::string& m, uint32_t v) { for (int i = 3; i >= 0; i--) m += (char)((v >> (8 * i)) & 255); }
@@ -83,6 +87,12 @@ void OnMessage(const std::string& m) {
         if (s >= 0) hn::Send(s, m.data() + 5, (int)m.size() - 5, 0);
         break; }
     case 3: if (m.size() >= 5) Close(Get32(m, 1), false); break;
+    case 5: if (m.size() >= 2 && m.size() >= 2u + (uint8_t)m[1]) {
+        std::string key = m.substr(2, (uint8_t)m[1]), val = m.substr(2 + (uint8_t)m[1]);
+        { std::lock_guard<std::mutex> l(g_syncM); g_sync[key] = val; }
+        g_syncCv.notify_all();
+        fprintf(stderr, "[relay] got '%s' from the other player\n", key.c_str());
+        break; }
     case 4: if (m.size() >= 5) {   // a match packet: hand it to our game from the other player's address
         uint16_t from = Get16(m, 1), to = Get16(m, 3);
         int s;
@@ -147,8 +157,23 @@ bool RelaySendUdp(uint16_t fromPort, uint16_t toPort, const void* data, int n) {
     std::string m(1, '\4'); Put16(m, fromPort); Put16(m, toPort); m.append((const char*)data, n);
     return Send(m);
 }
+// Named messages to / from the other player's game (relay games only).
+bool RelaySyncSend(const std::string& key, const std::string& val) {
+    if (!g_on || key.size() > 255) return false;
+    std::string m(1, '\5'); m += (char)key.size(); m += key; m += val;
+    for (int i = 0; i < 50; i++) { if (Send(m)) return true; Sleep(200); }   // the link may be reconnecting
+    return false;
+}
+bool RelaySyncTake(const std::string& key, std::string& val, int timeoutMs) {
+    std::unique_lock<std::mutex> l(g_syncM);
+    if (!g_syncCv.wait_for(l, std::chrono::milliseconds(timeoutMs), [&] { return g_sync.count(key) != 0; })) return false;
+    val = g_sync[key]; g_sync.erase(key);
+    return true;
+}
 #else
 #include <cstdint>
+bool RelaySyncSend(const std::string&, const std::string&) { return false; }
+bool RelaySyncTake(const std::string&, std::string&, int) { return false; }
 #include <string>
 void RelayStart(bool, const std::string&, const std::string&) {}
 bool RelayActive() { return false; }

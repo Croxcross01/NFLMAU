@@ -1,5 +1,5 @@
-version=1.0.34
-pack=update/pack-1.0.34.zip
-sha256=c57fb06dddcbfd9ce825b725e4f034bd407fd981358692e49e9aa2ccbe20a6e6
+version=1.0.35
+pack=update/pack-1.0.35.zip
+sha256=8cf3f2ab9a410c0a6d0d033ef5720ddbf0234c9b9da5c83ad4040b963a5c0d8d
 rebuild=0
-notes=Online: your game now receives the other player's match data (team select and game play)
+notes=Online: both games use the host's Mods settings (7 on 7 / full lines, extra DB, lineup window); each player sets his own team's lineup and the picks are swapped

@@ -303,11 +303,39 @@ static void PartySend(const std::string& line) {
     if (g_partyWs) { g_partyWs->Send(m.data(), m.size()); return; }
     if (g_partySock != INVALID_SOCKET) send(g_partySock, m.data(), (int)m.size(), 0);
 }
-static void PartyHello() { PartySend("HELLO " + Utf8(OnlineGet(L"gamertag"))); PartySend(std::string("READY ") + (g_meReady ? "1" : "0")); }
+// The host's game rules (Mods page) are used by both games, so both play the same game: "lines=7 extra_db=ss ...".
+// Both launchers write them to mods/online_rules.txt, which the game reads in online games.
+static std::string g_rules;   // the rules in use (the host's), shown on the ready line
+static std::string HostRules() {
+    auto word = [](const wchar_t* f, const char* def) { std::string t = bc::Trim(bc::ReadText(OnlineDir() + L"\\" + f)); t = t.substr(0, t.find_first_of(" \r\n")); return t.empty() ? std::string(def) : t; };
+    std::string lineup = GetFileAttributesW((OnlineDir() + L"\\lineup_picker.off").c_str()) != INVALID_FILE_ATTRIBUTES ? "off" : "on";
+    return "lines=" + word(L"lines.txt", "5") + " extra_db=" + word(L"extra_db.txt", "ss") + " pa_fix=" + word(L"pa_fix.txt", "on") + " lineup=" + lineup;
+}
+static void WriteRules(const std::string& r) {
+    std::string out; for (char c : r) out += c == ' ' ? '\n' : c;
+    CreateDirectoryW(OnlineDir().c_str(), nullptr);
+    bc::WriteText(OnlineDir() + L"\\online_rules.txt", out + "\n");
+    std::lock_guard<std::mutex> l(g_partyM); g_rules = r;
+}
+static std::wstring RulesText() {
+    std::string r; { std::lock_guard<std::mutex> l(g_partyM); r = g_rules; }
+    if (r.empty()) return L"";
+    auto has = [&](const char* k) { return r.find(k) != std::string::npos; };
+    std::wstring t = has("lines=7") ? L"7 on 7" : has("lines=full") ? L"full lines" : L"5 on 5";
+    t += has("lineup=off") ? L", no lineup window" : L", lineup window";
+    t += has("extra_db=off") ? L", no extra DB" : L", extra DB";
+    return L"     Rules (host's): " + t;
+}
+static void PartyHello() {
+    PartySend("HELLO " + Utf8(OnlineGet(L"gamertag")));
+    if (g_partyRole == 1) { std::string r = HostRules(); WriteRules(r); PartySend("RULES " + r); }
+    PartySend(std::string("READY ") + (g_meReady ? "1" : "0"));
+}
 // both ready: the host starts now and tells the friend; the friend starts 4 seconds after hearing it
 static void PartyMaybeStart() {
     if (g_partyRole != 1 || g_partyStarted || !g_meReady || !g_peerReady) return;
     g_partyStarted = true;
+    { std::string r = HostRules(); WriteRules(r); PartySend("RULES " + r); }   // the latest, in case they changed
     PartySend("START");
     PostMessageW(g_wnd, WM_PARTY, 1, 0);   // start the game (UI thread)
 }
@@ -315,6 +343,7 @@ static void PartyLine(const std::string& line) {   // one line from the other la
     { std::lock_guard<std::mutex> l(g_partyM);
       if (line.rfind("HELLO ", 0) == 0) g_peerName = W8(line.substr(6, 15));
       else if (line.rfind("READY ", 0) == 0) g_peerReady = line[6] == '1'; }
+    if (line.rfind("RULES ", 0) == 0 && g_partyRole == 2) WriteRules(line.substr(6));
     if (line == "START" && g_partyRole == 2 && !g_partyStarted) { g_partyStarted = true; PostMessageW(g_wnd, WM_PARTY, 2, 0); }
     PartyMaybeStart();
     PartyUi();
@@ -437,6 +466,7 @@ static void PartyShow() {
     else {
         std::wstring other = peer.empty() ? L"your friend" : peer;
         t = L"Connected:  " + me + (role == 1 ? L" (host) " : L" ") + (mr ? L"- READY" : L"- not ready") + L"     " + other + (role == 2 ? L" (host) " : L" ") + (pr ? L"- READY" : L"- not ready");
+        t += RulesText();
         if (mr && pr) t += role == 1 ? L"     Starting..." : L"     Starting when the host's game is up...";
         else if (!mr) t += L"     Press READY when you are.";
         else t += L"     Waiting for " + other + L" to press READY.";

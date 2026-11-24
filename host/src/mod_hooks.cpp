@@ -20,6 +20,7 @@ bool GeneratePlaybookList(const std::string& gameDir, const std::string& outPath
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+bool OnlineMode();   // xam.cpp
 #include <map>
 #include <mutex>
 #include <set>
@@ -44,6 +45,26 @@ std::map<uint32_t, std::string> g_prefixMap;   // team id -> own uniform prefix 
 uint32_t g_matchHome = 0, g_matchAway = 0, g_matchSeq = 0;
 uint32_t g_dcTeams[2] = {1023, 1023};   // match team ids of the last match depth chart copy   // team ids of the match being set up (ModMatchTeams)
 // MADDEN_ART_PERSIST=1 restores the old behaviour (descriptor rewritten to the art team)
+// Online games: both PCs must play by the same rules (players per side, the extra defensive back, play-action fix,
+// the lineup window), so the host's choices are used on both - the launchers pass them on when the two connect
+// (mods/online_rules.txt: "key=value" lines). Empty = not an online game or not set: use this PC's own setting.
+std::string OnlineRule(const char* key) {
+    if (!OnlineMode()) return "";
+    static std::map<std::string, std::string> rules = [] {
+        std::map<std::string, std::string> r; char b[256];
+        if (FILE* f = fopen("mods/online_rules.txt", "rb")) {
+            while (fgets(b, sizeof b, f)) {
+                std::string t = b; while (!t.empty() && (t.back() == '\n' || t.back() == '\r' || t.back() == ' ')) t.pop_back();
+                size_t e = t.find('='); if (e != std::string::npos) r[t.substr(0, e)] = t.substr(e + 1);
+            }
+            fclose(f);
+        }
+        for (auto& [k, v] : r) fprintf(stderr, "[mods] online rules (from the host): %s = %s\n", k.c_str(), v.c_str());
+        return r; }();
+    auto it = rules.find(key);
+    return it == rules.end() ? "" : it->second;
+}
+static int PaFixRule() { std::string r = OnlineRule("pa_fix"); return r.empty() ? -1 : r == "off" ? 0 : 1; }
 bool g_artPersist = [] { const char* v = getenv("MADDEN_ART_PERSIST"); return v && *v == '1'; }();
 std::mutex g_loadLock;
 bool g_loaded = false;
@@ -904,8 +925,10 @@ static void LineupPicker(PPCContext& live) {
     struct PickTimer { int64_t t0 = std::chrono::steady_clock::now().time_since_epoch().count();
         ~PickTimer() { g_pickerTime += std::chrono::steady_clock::now().time_since_epoch().count() - t0; } } pickTimer;
     {
+        std::string rule = OnlineRule("lineup");
+        if (rule == "off") return;
         const char* dir = getenv("MADDEN_MODS_ROOT");
-        FILE* f = fopen((std::string(dir ? dir : "mods") + "/lineup_picker.off").c_str(), "rb");
+        FILE* f = rule.empty() ? fopen((std::string(dir ? dir : "mods") + "/lineup_picker.off").c_str(), "rb") : nullptr;
         if (f) { fclose(f); return; }
     }
     static uint32_t qPlayer = 0, qDepth, qInsert, out, fn, ln;
@@ -1007,7 +1030,42 @@ static void LineupPicker(PPCContext& live) {
                 teams[0], use[0] + 1, teams[1], use[1] + 1);
         g_lineupTeams[0] = teams[0]; g_lineupTeams[1] = teams[1];
     }
-    bool accepted = ShowLineupPicker(side[0], side[1], &playersMode, padTeam);
+    // Online: each player sets his own team's lineup; the picks are swapped through the online server so both games
+    // start the match with the same lineups (else they would play different games).
+    extern bool RelayActive(); extern bool RelaySyncSend(const std::string&, const std::string&);
+    extern bool RelaySyncTake(const std::string&, std::string&, int);
+    int mySide = -1;
+    if (OnlineMode()) {
+        extern uint32_t g_sideUser[2];
+        int f0 = PortOfProfile(g_sideUser[0]), f1 = PortOfProfile(g_sideUser[1]);
+        mySide = (f0 >= 0) != (f1 >= 0) ? (f0 >= 0 ? 0 : 1) : -1;
+        fprintf(stderr, "[mods] lineup picker (online): this PC plays the %s team\n", mySide == 0 ? "home" : mySide == 1 ? "away" : "? (unknown)");
+        if (mySide < 0 || !RelayActive()) {
+            fprintf(stderr, "[mods] lineup picker (online): %s - lineups stay as they are\n", mySide < 0 ? "can't tell which team is yours" : "only works through the online server");
+            g_pickerOpen = false; LinesApplyAlignment(LinesGetMode(), true); return;
+        }
+        side[1 - mySide].players.clear();   // the other player sets that team
+        for (int i = 0; i < 4; i++) padTeam[i] = padTeam[i] >= 0 ? mySide : -1;
+    }
+    bool accepted = ShowLineupPicker(side[0], side[1], mySide >= 0 ? nullptr : &playersMode, padTeam);
+    if (mySide >= 0) {
+        std::string mine;   // "slot,slot,..." or "skip"
+        if (accepted && side[mySide].slots != before[mySide]) for (uint32_t v : side[mySide].slots) mine += std::to_string((int)v) + ",";
+        else { mine = "skip"; side[mySide].slots = before[mySide]; }
+        side[1 - mySide].slots = before[1 - mySide];
+        RelaySyncSend("lineup" + std::to_string(mySide), mine);
+        fprintf(stderr, "[mods] lineup picker (online): sent my lineup, waiting for the other player's...\n");
+        std::string theirs;
+        if (RelaySyncTake("lineup" + std::to_string(1 - mySide), theirs, 180000)) {
+            if (theirs != "skip") {
+                std::vector<uint32_t> v; size_t p = 0, e;
+                while ((e = theirs.find(',', p)) != std::string::npos) { v.push_back((uint32_t)std::stol(theirs.substr(p, e - p))); p = e + 1; }
+                if (v.size() == side[1 - mySide].slots.size()) side[1 - mySide].slots = v;
+            }
+            fprintf(stderr, "[mods] lineup picker (online): got the other player's lineup (%s)\n", theirs == "skip" ? "unchanged" : "changed");
+        } else fprintf(stderr, "[mods] lineup picker (online): the other player's lineup didn't arrive - theirs stays as it was\n");
+        accepted = true;
+    }
     for (int i = 0; i < 4; i++) if (padTeam[i] >= 0) SaveLineupSide(padTeam[i], i);   // as the players set it (BACK swaps)
     g_pickerOpen = false;
     LinesSetMode(playersMode);   // players per side chosen in the window (kept for the next match too)
@@ -1162,7 +1220,9 @@ void InstallLinesHook() {
     if (g_linesMode >= 0) return;
     g_linesMode = 5;
     const char* dir = getenv("MADDEN_MODS_ROOT");
-    if (FILE* f = fopen((std::string(dir ? dir : "mods") + "/lines.txt").c_str(), "rb")) {
+    std::string rule = OnlineRule("lines");
+    if (!rule.empty()) g_linesMode = rule == "7" ? 7 : (rule == "full" || rule == "11") ? 11 : 5;
+    else if (FILE* f = fopen((std::string(dir ? dir : "mods") + "/lines.txt").c_str(), "rb")) {
         char b[16] = {};
         if (fscanf(f, "%15s", b) == 1) {
             if (!strcmp(b, "7")) g_linesMode = 7;
@@ -1177,6 +1237,7 @@ void InstallLinesHook() {
 int LinesGetMode() { InstallLinesHook(); return g_linesMode; }
 void LinesSetMode(int mode) {
     InstallLinesHook();
+    if (!OnlineRule("lines").empty()) return;   // online: the host's choice stays
     if (mode != 5 && mode != 7 && mode != 11) return;
     if (mode == g_linesMode) return;
     g_linesMode = mode;
@@ -1230,6 +1291,8 @@ int g_extraDbRole = -2;   // -2 not read yet, -1 off
 int ExtraDbRole() {
     if (g_extraDbRole != -2) return g_extraDbRole;
     g_extraDbRole = 18;
+    std::string rule = OnlineRule("extra_db");
+    if (!rule.empty()) { g_extraDbRole = rule == "off" ? -1 : rule == "fs" ? 17 : rule == "cb" ? 16 : 18; return g_extraDbRole; }
     if (FILE* f = fopen("mods/extra_db.txt", "rb")) {
         char b[16] = {};
         if (fscanf(f, "%15s", b) == 1) {
@@ -1696,7 +1759,7 @@ static void CpuPick(int side, bool wantPass, PPCRegister& r5, PPCRegister& r6) {
 void PaPlayType(bool userOffense) {
     static int state = -1;   // -1 unknown, 0 game's (4), 1 changed (105)
     static int fix = -1;
-    if (fix < 0) { fix = 1; if (FILE* f = fopen("mods/pa_fix.txt", "rb")) { char b[16] = {}; if (fscanf(f, "%15s", b) == 1 && !strcmp(b, "off")) fix = 0; fclose(f); } }
+    if (fix < 0) { fix = PaFixRule(); if (fix < 0 && (fix = 1)) if (FILE* f = fopen("mods/pa_fix.txt", "rb")) { char b[16] = {}; if (fscanf(f, "%15s", b) == 1 && !strcmp(b, "off")) fix = 0; fclose(f); } }
     int want = (fix && userOffense) ? 1 : 0;
     if (want == state) return;
     PPCContext* live = CurrentGuestContext(); if (!live) return;
@@ -1728,7 +1791,7 @@ void PlayCallOffense(PPCRegister& r4, PPCRegister& r5, PPCRegister& r6) {
         const std::string& n = g_offPlay;
         bool pa = n.rfind("PA ", 0) == 0 || n.find(" PA ") != std::string::npos;
         static int fix = -1;
-        if (fix < 0) { fix = 1; if (FILE* ff = fopen("mods/pa_fix.txt", "rb")) { char bb[16] = {}; if (fscanf(ff, "%15s", bb) == 1 && !strcmp(bb, "off")) fix = 0; fclose(ff); } }
+        if (fix < 0) { fix = PaFixRule(); if (fix < 0 && (fix = 1)) if (FILE* ff = fopen("mods/pa_fix.txt", "rb")) { char bb[16] = {}; if (fscanf(ff, "%15s", bb) == 1 && !strcmp(bb, "off")) fix = 0; fclose(ff); } }
         g_paConvert = fix && pa && g_pcPort[0].load() < 4;   // a controller has the ball (also two players: the side value flips to the defense)
     }
     g_gunDb = (f == "Gun" || f == "Shotgun") && ExtraDbRole() >= 0;
@@ -1826,7 +1889,7 @@ void PaScan() {
     if (lastSt != 3) {   // a new play: is it the user's play-action play?
         lastSt = 3; active = false; qbSlot = uidx = -1; qbP = rbP = 0;
         static int fix = -1;
-        if (fix < 0) { fix = 1; if (FILE* f = fopen("mods/pa_fix.txt", "rb")) { char b[16] = {}; if (fscanf(f, "%15s", b) == 1 && !strcmp(b, "off")) fix = 0; fclose(f); } }
+        if (fix < 0) { fix = PaFixRule(); if (fix < 0 && (fix = 1)) if (FILE* f = fopen("mods/pa_fix.txt", "rb")) { char b[16] = {}; if (fscanf(f, "%15s", b) == 1 && !strcmp(b, "off")) fix = 0; fclose(f); } }
         const std::string& n = g_offPlay;
         bool pa = n.rfind("PA ", 0) == 0 || n.find(" PA ") != std::string::npos || n.find("Fake") != std::string::npos || n.find("Flea") != std::string::npos;
         if (!fix || !pa || g_pcPort[0].load() >= 4) return;
