@@ -465,12 +465,23 @@ void OnlineStartup() {
 // Quick Match progress (the game's matchmaking step, called every frame while searching): logged when it changes.
 // Flags: 8813 waiting for lobby news, 8815 my player record shows the game, 8816 the game record arrived; 8796 state.
 extern "C" PPC_FUNC(__imp__sub_88F9E308);
+static thread_local bool g_qmForceIdle = false;
 PPC_FUNC(sub_88F9E308) {
     static uint64_t last = ~0ull;
+    static std::chrono::steady_clock::time_point readySince{};
     uint32_t o = ctx.r3.u32;
+    // Both players are in the match (my record shows it, the match record arrived) but the game still waits for its
+    // Xbox Live session helper to go idle. There is no real Xbox Live session here (those calls finish at once), so
+    // after a few seconds of that the wait is ended.
+    bool ready = ReadU32(o + 8796) == 1 && base[o + 8815] && base[o + 8816];
+    auto tnow = std::chrono::steady_clock::now();
+    if (!ready) readySince = {};
+    else if (readySince == std::chrono::steady_clock::time_point{}) readySince = tnow;
+    g_qmForceIdle = ready && tnow - readySince > std::chrono::seconds(4);
     uint64_t now = (uint64_t)ReadU32(o + 8796) << 32 | (uint32_t)(base[o + 8813] << 24 | base[o + 8814] << 16 | base[o + 8815] << 8 | base[o + 8816]);
     if (now != last) { last = now; fprintf(stderr, "[net] quick match: state %u, flags %u%u%u%u, game %d\n", ReadU32(o + 8796), base[o + 8813], base[o + 8814], base[o + 8815], base[o + 8816], (int)ReadU32(o + 8808)); }
     __imp__sub_88F9E308(ctx, base);
+    g_qmForceIdle = false;
 }
 // The game-session helper's status ('idle' etc.), checked by Quick Match before it starts the game: logged on change.
 extern "C" PPC_FUNC(__imp__sub_8929DFE0);
@@ -497,4 +508,28 @@ PPC_FUNC(sub_88E63478) {
         return;
     }
     __imp__sub_88E63478(ctx, base);
+}
+// The game's Xbox Live session helper (create / join / search a session): its state, logged when it changes
+// (0 idle, 1 creating, 2 searching, 3 created, 5 joining, 11-13 deleting, 17 failed).
+static void HelperState(uint32_t o, const char* where) {
+    static std::map<uint32_t, uint32_t> last; static std::mutex m;
+    uint32_t st = ReadU32(o + 116);
+    std::lock_guard<std::mutex> l(m);
+    auto it = last.find(o);
+    if (it == last.end() || it->second != st) { last[o] = st; fprintf(stderr, "[net] xbox session helper %08X: state %u (%s, pending %u, handle %08X)\n", o, st, where, ReadU32(o + 72), ReadU32(o + 100)); }
+}
+extern "C" PPC_FUNC(__imp__sub_88D82368);
+PPC_FUNC(sub_88D82368) {
+    if (OnlineMode()) HelperState(ctx.r3.u32, "status");
+    if (g_qmForceIdle && ctx.r4.u32 == 0x69646C65 /*idle*/) {
+        static std::atomic<int> k{0}; if (k++ < 3) fprintf(stderr, "[net] quick match: both players are in - not waiting for the session helper any longer\n");
+        ctx.r3.u64 = 1; return;
+    }
+    __imp__sub_88D82368(ctx, base);
+}
+extern "C" PPC_FUNC(__imp__sub_88D815D8);
+PPC_FUNC(sub_88D815D8) {
+    uint32_t o = ctx.r3.u32;
+    __imp__sub_88D815D8(ctx, base);
+    if (OnlineMode()) HelperState(o, "update");
 }

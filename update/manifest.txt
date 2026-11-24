@@ -1,5 +1,5 @@
-version=1.0.35
-pack=update/pack-1.0.35.zip
-sha256=8cf3f2ab9a410c0a6d0d033ef5720ddbf0234c9b9da5c83ad4040b963a5c0d8d
+version=1.0.36
+pack=update/pack-1.0.36.zip
+sha256=8cc78c0b46a48c3d70f08ad07fa7e207d73b68fc9d50d8893b41451038303a72
 rebuild=0
-notes=Online: both games use the host's Mods settings (7 on 7 / full lines, extra DB, lineup window); each player sets his own team's lineup and the picks are swapped
+notes=Online Quick Match: the hosting side no longer keeps searching once both players are in
