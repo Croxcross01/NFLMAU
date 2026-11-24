@@ -219,7 +219,10 @@ IMP(NetDll_recv) {
 IMP(NetDll_sendto) {   // (caller, s, buf, len, flags, to, tolen)
     TRACE(NetDll_sendto);
     uint32_t ip; uint16_t port; ReadAddr(ctx.r8.u32, ip, port);
-    if (RelayActive() && ip == RelayPeerIp()) {   // to the other player: through the relay
+    // To the other player: through the relay. The game's match connection also sends to 127.0.0.1 (it takes the
+    // session's address as "this PC" when there is no real Xbox Live), and nothing else on this PC takes the game's
+    // UDP packets (the lobby is TCP), so those go to the other player too.
+    if (RelayActive() && (ip == RelayPeerIp() || ip == 0x7F000001)) {
         uint32_t mip = 0; uint16_t mport = 0; hn::SockName(ctx.r4.s32, &mip, &mport);
         int n = ctx.r6.s32;
         Ret(ctx, RelaySendUdp(mport, port, g_base + ctx.r5.u32, n) ? n : -1);
