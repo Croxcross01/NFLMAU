@@ -335,6 +335,8 @@ IMP(NetDll_XNetGetTitleXnAddr) {
     if (a) { WriteU32(a, ip); WriteU32(a + 4, pub); W16(a + 8, 3074); for (int i = 0; i < 6; i++) g_base[a + 10 + i] = (uint8_t)(0x10 + i); }
     ctx.r3.u64 = 0x2 | 0x8 | 0x20 | 0x40 | 0x80;   // ethernet, DHCP, gateway, DNS, online
 }
+// This PC's Xbox address (XNADDR) at guest address a (36 bytes), as NetDll_XNetGetTitleXnAddr gives it.
+void FillXnAddr(uint32_t a) { PPCContext c{}; c.r4.u64 = a; __imp__NetDll_XNetGetTitleXnAddr(c, g_base); }
 // A player's Xbox address -> where to send: their internet address, or their home-network address when they are
 // behind the same router as this PC (same internet address).
 IMP(NetDll_XNetXnAddrToInAddr) {
@@ -534,19 +536,29 @@ PPC_FUNC(sub_88D815D8) {
     if (OnlineMode()) HelperState(o, "update");
 }
 // Which local player an Xbox Live session is for (by gamertag id): logged in online games while working this out.
+static thread_local bool g_sessForMe = false;   // inside the session create / step for this PC's player
 extern "C" PPC_FUNC(__imp__sub_88D728E8);
 PPC_FUNC(sub_88D728E8) {
     uint32_t a = ctx.r3.u32, b = ctx.r4.u32;
     __imp__sub_88D728E8(ctx, base);
+    int orig = ctx.r3.s32;
+    if (OnlineMode() && orig < 0 && g_sessForMe) {
+        // the match session is always for this PC's signed-in player (player 1 here); the id the game passed didn't
+        // match the one it signed in with, so player 1 is used
+        fprintf(stderr, "[net] session player lookup for this PC's session: using player 1\n");
+        ctx.r3.u64 = 0;
+    }
     if (OnlineMode()) {
         static std::atomic<int> k{0};
-        if (k++ < 12) {
+        if (k++ < 12 || orig < 0) {
             uint32_t tbl = ReadU32(0x89528978);
             std::string t;
             char x[48];
             for (int i = 0; i < 4 && tbl; i++) { snprintf(x, sizeof x, " [%d] %08X%08X", i, ReadU32(tbl + 96 + 32 * i), ReadU32(tbl + 100 + 32 * i)); t += x; }
             snprintf(x, sizeof x, "%08X%08X", b ? ReadU32(b) : 0, b ? ReadU32(b + 4) : 0);
-            fprintf(stderr, "[net] session player lookup (name %08X, id %s) -> %d; players:%s\n", a, x, ctx.r3.s32, t.c_str());
+            std::string nm; for (int i = 0; a && i < 31 && g_base[a + i]; i++) nm += (char)g_base[a + i];
+            std::string names; for (int i = 0; i < 4 && tbl; i++) { names += " ["; for (int j = 0; j < 16 && g_base[tbl + 80 + 32 * i + j]; j++) names += (char)g_base[tbl + 80 + 32 * i + j]; names += "]"; }
+            fprintf(stderr, "[net] session player lookup (name '%s', id %s) -> %d; players:%s /%s\n", nm.c_str(), x, orig, t.c_str(), names.c_str());
         }
     }
 }
@@ -554,6 +566,13 @@ PPC_FUNC(sub_88D728E8) {
 extern "C" PPC_FUNC(__imp__sub_88D80F70);
 PPC_FUNC(sub_88D80F70) {
     uint32_t o = ctx.r3.u32, r4 = ctx.r4.u32, r5 = ctx.r5.u32;
-    __imp__sub_88D80F70(ctx, base);
+    g_sessForMe = true; __imp__sub_88D80F70(ctx, base); g_sessForMe = false;
     if (OnlineMode()) fprintf(stderr, "[net] xbox session create (helper %08X, host %u, %08X) -> %d, state %u\n", o, r4, r5, ctx.r3.s32, ReadU32(o + 116));
+}
+// Deleting / joining a match's Xbox Live session: logged.
+extern "C" PPC_FUNC(__imp__sub_88D80DF8);
+PPC_FUNC(sub_88D80DF8) {
+    uint32_t o = ctx.r3.u32, r4 = ctx.r4.u32;
+    g_sessForMe = true; __imp__sub_88D80DF8(ctx, base); g_sessForMe = false;
+    if (OnlineMode()) fprintf(stderr, "[net] xbox session step (helper %08X, %u) -> %d, state %u\n", o, r4, ctx.r3.s32, ReadU32(o + 116));
 }

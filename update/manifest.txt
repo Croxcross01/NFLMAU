@@ -1,5 +1,5 @@
-version=1.0.37
-pack=update/pack-1.0.37.zip
-sha256=3bd34ac4bfa8e20d01b89c99d96ef8207595ae650854c606bd5a94c2b4259726
+version=1.0.38
+pack=update/pack-1.0.38.zip
+sha256=d0072c6337512f8d9b60256162d19484b70201908867e4a04f5679c923905ba6
 rebuild=0
-notes=Online: more detail in the log about the match session (to fix team select not syncing)
+notes=Online: the match's Xbox Live session is now created (needed before the two games connect for team select)

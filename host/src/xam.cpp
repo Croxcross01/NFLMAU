@@ -1,6 +1,7 @@
 // XAM: user profile, notifications, input (placeholder), audio config, misc. One local profile "Player" is
 // signed in on controller 1, offline.
 #include "kernel.h"
+#include <ctime>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -184,12 +185,49 @@ IMP(XMsgInProcessCall) {   // (app, message, arg1, arg2)
     if (g_trace || OnlineMode()) fprintf(stderr, "[live] XMsgInProcessCall app %X msg %X a1 %08X a2 %08X\n", app, msg, a1, ctx.r6.u32);
     ctx.r3.u64 = 0;
 }
+// XSessionCreate (app FB msg B0010), buffer: session object, flags, user, public slots, private slots, XSESSION_INFO*,
+// nonce*. XSESSION_INFO: session id (8), host's Xbox address (36), key (16). A hosted session gets a new id and key
+// and this PC's address (the game shares it with the other player through the lobby).
+void FillXnAddr(uint32_t a);   // net.cpp
+static void SessionCreate(uint32_t buf) {
+    uint32_t flags = ReadU32(buf + 4), info = ReadU32(buf + 20), nonce = ReadU32(buf + 24);
+    static uint32_t seed = 0x9E3779B9u ^ (uint32_t)time(nullptr);
+    auto rnd = [] { seed = seed * 1664525u + 1013904223u; return (uint8_t)(seed >> 24); };
+    if (nonce) for (int i = 0; i < 8; i++) g_base[nonce + i] = rnd();
+    bool host = flags & 1;
+    if (info && host) {
+        for (int i = 0; i < 8; i++) g_base[info + i] = rnd();
+        g_base[info] = (g_base[info] & 0x0F) | 0xE0;   // online peer-to-peer session id
+        FillXnAddr(info + 8);
+        for (int i = 0; i < 16; i++) g_base[info + 44 + i] = rnd();
+    }
+    fprintf(stderr, "[live] Xbox Live session created (%s, flags %X, %u+%u players)\n", host ? "hosting" : "joining", flags, ReadU32(buf + 12), ReadU32(buf + 16));
+}
 static void StartIORequest(PPCContext& ctx, const char* name) {   // (app, message, overlapped*, buffer, length, ...)
     uint32_t app = ctx.r3.u32, msg = ctx.r4.u32, ov = ctx.r5.u32;
     if (g_trace || OnlineMode()) fprintf(stderr, "[live] %s app %X msg %X buf %08X len %X\n", name, app, msg, ctx.r6.u32, ctx.r7.u32);
+    if (app == 0xFB && msg == 0xB0010 && ctx.r6.u32) SessionCreate(ctx.r6.u32);
     if (ov) { CompleteOverlapped(ov, 0, 0); ctx.r3.u64 = X_ERROR_IO_PENDING; return; }
     ctx.r3.u64 = 0;
 }
 IMP(XMsgStartIORequest)   { TRACE(XMsgStartIORequest);   StartIORequest(ctx, "XMsgStartIORequest"); }
 IMP(XMsgStartIORequestEx) { TRACE(XMsgStartIORequestEx); StartIORequest(ctx, "XMsgStartIORequestEx"); }
 IMP(XMsgCancelIORequest)  { TRACE(XMsgCancelIORequest);  ctx.r3.u64 = 0; }
+
+// Xbox Live session handles (XSessionCreate makes one; the game keeps a reference to its object).
+IMP(XamSessionCreateHandle) {   // (handle*)
+    TRACE(XamSessionCreateHandle);
+    KObject* o = new KObject{KObject::Dispatcher};
+    o->guestPtr = KAllocDispatcher(0x11, 0, 0x40);
+    uint32_t h = KNewHandle(o);
+    if (ctx.r3.u32) WriteU32(ctx.r3.u32, h);
+    ctx.r3.u64 = 0;
+}
+IMP(XamSessionRefObjByHandle) {   // (handle, object*)
+    TRACE(XamSessionRefObjByHandle);
+    uint32_t o = KHandleToGuestObject(ctx.r3.u32);
+    if (!o) { KObject* k = KLookup(ctx.r3.u32); if (k) { if (!k->guestPtr) k->guestPtr = KAllocDispatcher(0x11, 0, 0x40); o = k->guestPtr; } }
+    if (!o) { ctx.r3.u64 = 0xC0000008; return; }   // invalid handle
+    if (ctx.r4.u32) WriteU32(ctx.r4.u32, o);
+    ctx.r3.u64 = 0;
+}
