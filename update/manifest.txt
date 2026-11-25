@@ -1,5 +1,5 @@
-version=1.0.41
-pack=update/pack-1.0.41.zip
-sha256=930780462d997a7e5c814836fcb081b40b4d38e0b5d2028b63d2f89b7a15a7ff
+version=1.0.42
+pack=update/pack-1.0.42.zip
+sha256=e5d722d6518461dfade50b5625dbb7c20874f6594e326dc13e952b760d6722f9
 rebuild=0
-notes=Online: match data the game sends to its own PC now goes to the other player
+notes=Edited plays: the game can use plays you change or add (dev tools Playbooks tab)

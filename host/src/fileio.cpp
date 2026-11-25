@@ -1,6 +1,7 @@
 // File system imports. Guest paths (game:\, d:\, \Device\Cdrom0\, ...) are mapped to the folder holding the
 // user's own extracted game files (MADDEN_GAME_DIR, default ./game); writable devices (cache:, save data, ...)
 // go to MADDEN_SAVE_DIR (default ./save).
+#include "archive_overlay.h"
 #include "kernel.h"
 #include "platform.h"
 #include <algorithm>
@@ -198,6 +199,7 @@ static uint32_t OpenCommon(uint32_t pHandle, uint32_t access, uint32_t oa, uint3
         if (!hf->fp) hf->fp = fopen(host.c_str(), "rb");
         if (!hf->fp) { delete hf; IoStatus(iosb, STATUS_ACCESS_DENIED, 0); return STATUS_ACCESS_DENIED; }
         if (truncate) info = 3;   // FILE_OVERWRITTEN
+        if (!(writable && wantWrite)) hf->overlay = OverlayFor(host);   // edited playbooks etc. (archive_overlay.cpp)
     }
     auto* o = new KObject{KObject::File}; o->file = hf;
     uint32_t h = KNewHandle(o);
@@ -308,7 +310,7 @@ IMP(NtReadFile) {
     if (pOff) { int64_t v = (int64_t)ReadU64(pOff); if (v >= 0) off = (uint64_t)v; }   // -2 = FILE_USE_FILE_POINTER_POSITION
     PlatFseek(f->fp, off);
     PlatEnsureCommitted(g_base + buf, len);
-    size_t n = fread(g_base + buf, 1, len, f->fp);
+    size_t n = f->overlay ? OverlayRead(f->overlay, f->fp, off, g_base + buf, len) : fread(g_base + buf, 1, len, f->fp);
     f->pos = off + n;
     LogArchiveRead(f->hostPath, off, n);
     uint32_t st = (n == 0 && len != 0) ? STATUS_END_OF_FILE : STATUS_SUCCESS;
@@ -331,7 +333,8 @@ IMP(NtReadFileScatter) {
         if (!page) page = ReadU32(seg + i * 8 + 4) & ~0xFFFu;
         size_t chunk = std::min<size_t>(0x1000, len - total);
         PlatEnsureCommitted(g_base + page, chunk);
-        size_t n = fread(g_base + page, 1, chunk, f->fp); total += n; if (n < chunk) break;
+        size_t n = f->overlay ? OverlayRead(f->overlay, f->fp, off + total, g_base + page, chunk) : fread(g_base + page, 1, chunk, f->fp);
+        total += n; if (n < chunk) break;
     }
     f->pos = off + total;
     LogArchiveRead(f->hostPath, off, total);
@@ -352,7 +355,11 @@ IMP(NtWriteFile) {
 }
 IMP(NtFlushBuffersFile) { TRACE(NtFlushBuffersFile); if (HostFile* f = FileOf(ctx.r3.u32)) if (f->fp) fflush(f->fp); IoStatus(ctx.r4.u32, 0, 0); ctx.r3.u64 = 0; }
 
-static bool StatHandle(HostFile* f, FStat& st) { return FsStat(f->hostPath, st); }
+static bool StatHandle(HostFile* f, FStat& st) {
+    if (!FsStat(f->hostPath, st)) return false;
+    if (f->overlay) st.size = OverlaySize(f->overlay, st.size);
+    return true;
+}
 
 // NtQueryInformationFile(Handle, IoStatus, FileInformation, Length, FileInformationClass)
 IMP(NtQueryInformationFile) {
@@ -400,6 +407,7 @@ IMP(NtQueryFullAttributesFile) {
         ctx.r3.u64 = STATUS_OBJECT_NAME_NOT_FOUND; return;
     }
     uint32_t p = ctx.r4.u32;
+    if (!st.dir) if (ArchiveOverlay* ov = OverlayFor(host)) st.size = OverlaySize(ov, st.size);
     WriteTimes(p, st); WriteU64(p + 32, (st.size + 0xFFF) & ~0xFFFull); WriteU64(p + 40, st.size); WriteU32(p + 48, Attr(st));
     ctx.r3.u64 = STATUS_SUCCESS;
 }

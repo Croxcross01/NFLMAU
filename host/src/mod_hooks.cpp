@@ -20,6 +20,7 @@ bool GeneratePlaybookList(const std::string& gameDir, const std::string& outPath
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+std::string PlaybookEditsStamp();   // playbook_mod.cpp
 bool OnlineMode();   // xam.cpp
 #include <map>
 #include <mutex>
@@ -1508,12 +1509,21 @@ uint32_t g_pcBuf = 0;
 void PcLoad() {
     if (g_pcLoaded) return;
     g_pcLoaded = true;
-    FILE* f = fopen("mods/playcall_plays.txt", "rb");
-    if (!f) {   // first run: build the list from the player's own game files
+    // with edited playbooks (playbook_mod.cpp) the list is mods/playcall_plays_edited.txt, rebuilt when the edits change
+    std::string stamp = PlaybookEditsStamp();
+    std::string listPath = stamp.empty() ? "mods/playcall_plays.txt" : "mods/playcall_plays_edited.txt";
+    FILE* f = nullptr;
+    if (!stamp.empty()) {
+        char b[32] = {};
+        if (FILE* s = fopen("mods/playcall_plays_edited.stamp", "rb")) { if (!fgets(b, sizeof b, s)) b[0] = 0; fclose(s); }
+        if (stamp == b) f = fopen(listPath.c_str(), "rb");
+    } else f = fopen(listPath.c_str(), "rb");
+    if (!f) {   // first run (or new edits): build the list from the player's own game files
         std::error_code ec; std::filesystem::create_directories("mods", ec);
-        bool made = GeneratePlaybookList(FsGameDir(), "mods/playcall_plays.txt");
-        fprintf(stderr, "[mods] play call: %s mods/playcall_plays.txt from the game's playbooks\n", made ? "built" : "could not build");
-        f = fopen("mods/playcall_plays.txt", "rb");
+        bool made = GeneratePlaybookList(FsGameDir(), listPath);
+        fprintf(stderr, "[mods] play call: %s %s from the game's playbooks\n", made ? "built" : "could not build", listPath.c_str());
+        if (made && !stamp.empty()) if (FILE* s = fopen("mods/playcall_plays_edited.stamp", "wb")) { fputs(stamp.c_str(), s); fclose(s); }
+        f = fopen(listPath.c_str(), "rb");
     }
     if (!f) { fprintf(stderr, "[mods] play call: mods/playcall_plays.txt not found (full playbook off)\n"); return; }
     static char line[16384];

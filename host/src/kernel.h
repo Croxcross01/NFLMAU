@@ -26,6 +26,7 @@ extern std::condition_variable g_kCond;
 
 struct HostFile {
     std::string hostPath; FILE* fp = nullptr; bool isDir = false; uint64_t pos = 0;
+    struct ArchiveOverlay* overlay = nullptr;   // archive with replaced entries (archive_overlay.h)
     std::vector<std::string> dirEntries; size_t dirPos = 0; bool dirListed = false;
 };
 struct KObject {

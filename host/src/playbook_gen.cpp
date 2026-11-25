@@ -3,6 +3,7 @@
 // Nothing taken from the game is stored in this repository; this only reads the copy the player supplies.
 // Same output as the dev tool make_playlist.py. One line per play:
 //   O|D <tab> formation shown <tab> play name <tab> sets <tab> play art <tab> formation (game name) <tab> R|P
+#include "archive_overlay.h"
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -114,7 +115,11 @@ static bool Inflate(const uint8_t* src, size_t n, std::vector<uint8_t>& out) {
 
 // ---- BGFA1.05 archive (.ast): one entry, decompressed ----
 static uint64_t LE(const uint8_t* p, int n) { uint64_t v = 0; for (int i = n - 1; i >= 0; i--) v = (v << 8) | p[i]; return v; }
-static bool ReadEntry(const std::string& path, uint32_t want, std::vector<uint8_t>& out) {
+static bool ReadEntry(const std::string& path, uint32_t want, std::vector<uint8_t>& out, bool edited = true) {
+    if (edited) {   // the playbooks as edited (playbook_mod.cpp), when there are edits
+        size_t k = path.find_last_of("/\\");
+        if (const std::vector<uint8_t>* o = OverlayEntry(k == std::string::npos ? path : path.substr(k + 1), want)) { out = *o; return true; }
+    }
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return false;
     bool ok = false;
@@ -289,3 +294,6 @@ bool GeneratePlaybookList(const std::string& gameDir, const std::string& outPath
     remove(outPath.c_str());
     return rename(tmp.c_str(), outPath.c_str()) == 0;
 }
+
+// The game's own copy of an archive entry (no edits applied), for playbook_mod.cpp.
+bool ReadOriginalEntry(const std::string& path, uint32_t entry, std::vector<uint8_t>& out) { return ReadEntry(path, entry, out, false); }
