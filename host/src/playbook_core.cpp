@@ -153,6 +153,7 @@ void FixChecksums(std::vector<uint8_t>& d) {
     size_t base = 24 + size_t(n) * 8;
     std::vector<size_t> offs;
     for (uint32_t i = 0; i < n; i++) offs.push_back(base + BE32(&d[28 + i * 8]));
+    for (size_t o : offs) PutBE32(&d[o + 36], Crc(&d[o + 4], 32));   // each table header: crc of its bytes 4..36 (counts)
     PutBE32(&d[20], Crc(d.data(), 20));
     PutBE32(&d[offs[0]], Crc(d.data() + 24, base - 24));
     for (uint32_t i = 1; i < n; i++) PutBE32(&d[offs[i]], Crc(d.data() + offs[i - 1] + 40, offs[i] - offs[i - 1] - 40));

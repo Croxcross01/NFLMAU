@@ -1,5 +1,5 @@
-version=1.0.42
-pack=update/pack-1.0.42.zip
-sha256=e5d722d6518461dfade50b5625dbb7c20874f6594e326dc13e952b760d6722f9
+version=1.0.43
+pack=update/pack-1.0.43.zip
+sha256=6eb0506091e165493e65f61ec74115c54d1601482a63cbb36cac932c5c5d69b6
 rebuild=0
-notes=Edited plays: the game can use plays you change or add (dev tools Playbooks tab)
+notes=Edited plays: fixes the black screen at start when you have playbook edits

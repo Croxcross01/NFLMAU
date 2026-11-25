@@ -60,6 +60,8 @@ struct Db {
     const Table* T(const char* n) const;
 };
 
+// header u32 @20 = crc(bytes 0..20); each table header u32 @36 = crc(its bytes 4..36); table[0] leading u32 =
+// crc(table index); table[i] leading u32 = crc(table[i-1] from +40 to table[i]); after the last table its crc.
 void FixChecksums(std::vector<uint8_t>& db);
 
 // One step of a player's script.
