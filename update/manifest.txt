@@ -1,5 +1,5 @@
-version=1.0.47
-pack=update/pack-1.0.47.zip
-sha256=2d68427e9ec70785570a5d2bb6f2cdbf3bcba36715c88d6556430026cc45f411
+version=1.0.48
+pack=update/pack-1.0.48.zip
+sha256=0df6e2b31229f7b76ae2c21b54efd468751de090e4eb8a6f2137d2b312325f48
 rebuild=0
-notes=Depth charts you set in the dev tools now stick in the game. New dev tools look, player cards with rating sliders, and a Depth Chart tab.
+notes=Sign and release players in the dev tools Depth Chart tab: see who didn't make each team and sign them. Will Johnson and Jeremiyah Love make the Cardinals.

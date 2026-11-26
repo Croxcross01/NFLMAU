@@ -95,6 +95,7 @@ std::string FileText(const std::string& p) { std::string s; FILE* f = fopen(p.c_
 struct Player {
     std::map<std::string, std::string> fact; const std::map<std::string, std::string>* rate = nullptr;
     int pos = -1, team = 0, ovr = 0; std::string key;
+    int keep = 0;     // 1 = signed (always makes the team), -1 = released (never does): my_stars.txt / roster.tsv "keep"
     int target = 0;   // placeholder overall (no ratings file): from the roster's ovr / stars columns or his facts; 0 = keep
 };
 // Placeholder overall for a player the ratings file does not cover. The roster's own columns decide: "ovr" (an overall
@@ -162,7 +163,7 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
     for (auto& pk : ReadTable(picksPath, '\t')) {
         std::string k = Key(S(pk, "first"), S(pk, "last")); int tm = Num(pk, "team");
         for (auto& r : facts) if (Key(S(r, "first"), S(r, "last")) == k && (tm <= 0 || Num(r, "team") == tm)) {
-            r["stars"] = S(pk, "stars"); r["ovr"] = S(pk, "ovr"); picked.insert(k + "#" + std::to_string(Num(r, "team")));
+            r["stars"] = S(pk, "stars"); r["ovr"] = S(pk, "ovr"); if (!S(pk, "keep").empty()) r["keep"] = S(pk, "keep"); picked.insert(k + "#" + std::to_string(Num(r, "team")));
         }
     }
     auto ratings = ReadTable(ratingsPath, ',');
@@ -228,6 +229,7 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
         auto rt = rateBy.find(p.key + "#" + std::to_string(p.team)); if (rt == rateBy.end()) rt = rateBy.find(p.key);
         if (auto ne = named.find(p.key + "#" + std::to_string(p.team)); ne != named.end())
             for (auto& [f, v] : ne->second) if (f == "POVR") { r["ovr"] = v; picked.insert(p.key + "#" + std::to_string(p.team)); }
+        p.keep = Num(r, "keep");
         bool mine = picked.count(p.key + "#" + std::to_string(p.team)) && (Num(r, "stars") > 0 || Num(r, "ovr") > 0);
         if (rt != rateBy.end() && !mine) p.rate = rt->second;
         if (p.rate) p.ovr = Num(*p.rate, "OVERALL");
@@ -257,6 +259,7 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
             }
         }
     };
+    std::vector<Player*> cuts;
     for (uint32_t e = 347; e <= 383; e++) {
         if (!ar.Read(e, raw)) continue;
         Db db; if (!db.Load(raw)) continue;
@@ -266,12 +269,15 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
         auto bt = byTeam.find(tid); if (bt == byTeam.end()) continue;
         int spots = TP->used;
         // the roster: a minimum per position (best first), then the best of the rest
-        std::vector<Player*> all; for (auto& p : bt->second) all.push_back(&p);
-        std::stable_sort(all.begin(), all.end(), [](Player* a, Player* b) { return a->ovr > b->ovr; });
+        std::vector<Player*> all; for (auto& p : bt->second) if (p.keep >= 0) all.push_back(&p);
+        std::stable_sort(all.begin(), all.end(), [](Player* a, Player* b) { return a->keep != b->keep ? a->keep > b->keep : a->ovr > b->ovr; });
         std::vector<Player*> roster; std::set<Player*> taken;
         for (int pos = 0; pos < 21; pos++) { int got = 0; for (Player* p : all) if (p->pos == pos && got < kMinimum[pos] && !taken.count(p)) { roster.push_back(p); taken.insert(p); got++; } }
         for (Player* p : all) { if ((int)roster.size() >= spots) break; if (!taken.count(p)) { roster.push_back(p); taken.insert(p); } }
         if ((int)roster.size() > spots) roster.resize(spots);
+        { std::set<Player*> on(roster.begin(), roster.end());   // who did not make the team (room is the game's team size)
+          for (Player* p : all) if (!on.count(p)) cuts.push_back(p);
+          for (auto& p : bt->second) if (p.keep < 0) cuts.push_back(&p); }
         // spots: same player first, then the closest position
         std::vector<int> oldPos(spots); std::vector<std::string> oldKey(spots); std::vector<uint32_t> oldId(spots);
         for (int i = 0; i < spots; i++) { oldPos[i] = (int)db.Get(*TP, i, "PPOS"); oldKey[i] = Key(db.Str(*TP, i, "PFNA"), db.Str(*TP, i, "PLNA")); oldId[i] = db.Get(*TP, i, "PGID"); }
@@ -427,7 +433,13 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
     repl[70] = master.d;
     if (!ar.WritePatched(out, repl)) { fprintf(stderr, "[mods] roster: could not write %s\n", out.c_str()); return false; }
     if (FILE* f = fopen((outDir + "/built.txt").c_str(), "wb")) { fprintf(f, "%s\n", stamp); fclose(f); }
-    fprintf(stderr, "[mods] roster: built %s (%zu teams, %d players with placeholder ratings)\n", out.c_str(), teamRatings.size(), synthCount);
+    if (FILE* cf = fopen((setDir + "/cuts.txt").c_str(), "wb")) {   // for the dev tools: players with no room on their team
+        static const char* pn[] = {"QB","HB","FB","WR","TE","LT","LG","C","RG","RT","LE","RE","DT","LOLB","MLB","ROLB","CB","FS","SS","K","P"};
+        fputs("first\tlast\tposition\tteam\tovr\n", cf);
+        for (Player* p : cuts) fprintf(cf, "%s\t%s\t%s\t%d\t%d\n", S(p->fact, "first").c_str(), S(p->fact, "last").c_str(), p->pos >= 0 && p->pos < 21 ? pn[p->pos] : "?", p->team, p->ovr);
+        fclose(cf);
+    }
+    fprintf(stderr, "[mods] roster: built %s (%zu teams, %d players with placeholder ratings, %zu with no room on their team)\n", out.c_str(), teamRatings.size(), synthCount, cuts.size());
     return true;
 }
 
