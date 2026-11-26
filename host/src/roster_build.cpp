@@ -128,12 +128,13 @@ std::vector<const char*> SynthFields() {
 bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const std::string& outDir, bool withRatings) {
     namespace fs = std::filesystem;
     std::string factsPath = setDir + "/roster.tsv", ratingsPath = withRatings ? setDir + "/ratings.csv" : std::string(), editsPath = setDir + "/roster_edits.txt", picksPath = setDir + "/my_stars.txt",
-                shippedNamed = setDir + "/roster_ratings.tsv", myNamed = setDir + "/my_edits.tsv";
+                shippedNamed = setDir + "/roster_ratings.tsv", myNamed = setDir + "/my_edits.tsv",
+                depthPath = setDir + "/my_depth.tsv";
     std::string out = outDir + "/qkl_boot.ast", src = gameDir + "/qkl_boot.ast";
     std::error_code mk; fs::create_directories(outDir, mk);
     if (!fs::exists(factsPath)) return fs::exists(out);   // a set made with the dev tools: nothing to build
     std::error_code ec; auto gsz = fs::file_size(src, ec);
-    char stamp[64]; uint64_t h = Fnv(FileText(factsPath)); h = Fnv(FileText(ratingsPath), h); h = Fnv(FileText(editsPath), h); h = Fnv(FileText(picksPath), h); h = Fnv(FileText(shippedNamed), h); h = Fnv(FileText(myNamed), h); h = Fnv(std::to_string(gsz), h);
+    char stamp[64]; uint64_t h = Fnv(FileText(factsPath)); h = Fnv(FileText(ratingsPath), h); h = Fnv(FileText(editsPath), h); h = Fnv(FileText(picksPath), h); h = Fnv(FileText(shippedNamed), h); h = Fnv(FileText(myNamed), h); h = Fnv(FileText(depthPath), h); h = Fnv(std::to_string(gsz), h);
     snprintf(stamp, sizeof stamp, "v3 %016llx", (unsigned long long)h);
     if (fs::exists(out) && FileText(outDir + "/built.txt").rfind(stamp, 0) == 0) return true;
 
@@ -152,6 +153,11 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
             bool done = false; for (auto& fv : v) if (fv.first == f) { fv.second = S(e, "value"); done = true; }
             if (!done) v.push_back({f, S(e, "value")});
         }
+    // my_depth.tsv: depth chart order set in the dev tools (team, pos, depth, first, last); the builder's own order
+    // (best first) fills in after the players listed there
+    std::map<std::pair<int, int>, std::vector<std::pair<int, std::string>>> depthPick;   // (team, pos) -> (depth, key)
+    for (auto& e : ReadTable(depthPath, '\t')) depthPick[{Num(e, "team"), Num(e, "pos", -1)}].push_back({Num(e, "depth"), Key(S(e, "first"), S(e, "last"))});
+    for (auto& [k, v] : depthPick) std::stable_sort(v.begin(), v.end());
     std::set<std::string> picked;
     for (auto& pk : ReadTable(picksPath, '\t')) {
         std::string k = Key(S(pk, "first"), S(pk, "last")); int tm = Num(pk, "team");
@@ -351,6 +357,14 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
                 std::set<uint32_t> c; for (int n : nr) for (uint32_t pg : own[n]) c.insert(pg);
                 ordered.assign(c.begin(), c.end());
                 std::stable_sort(ordered.begin(), ordered.end(), [&](uint32_t a, uint32_t b) { return rating(a, col) > rating(b, col); });
+            }
+            if (auto dp = depthPick.find({tid, pos}); dp != depthPick.end()) {   // your depth chart order first
+                std::vector<uint32_t> mine;
+                for (auto& [d, key] : dp->second)
+                    for (int i = 0; i < TP->used; i++) if (Key(db.Str(*TP, i, "PFNA"), db.Str(*TP, i, "PLNA")) == key) {
+                        uint32_t pg = db.Get(*TP, i, "PGID"); if (std::find(mine.begin(), mine.end(), pg) == mine.end()) mine.push_back(pg); break; }
+                for (uint32_t pg : ordered) if (std::find(mine.begin(), mine.end(), pg) == mine.end()) mine.push_back(pg);
+                ordered = mine;
             }
             for (size_t depth = 0; depth < ks.size(); depth++) {
                 if (depth < ordered.size()) db.Set(*D, ks[depth], "PGID", ordered[depth]);
