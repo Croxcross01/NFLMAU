@@ -1,5 +1,5 @@
-version=1.0.45
-pack=update/pack-1.0.45.zip
-sha256=f05617be4c944c18b8f6494a930e3215036e787529e5017473e023e8409cf728
+version=1.0.46
+pack=update/pack-1.0.46.zip
+sha256=697865e9c286327123f9f5c79db4b85858c9641d4135eda40c4858db0e4ac584
 rebuild=0
-notes=New Custom 2027 Roster on the Mods page: set the ratings yourself in the dev tools. Roster edits are now kept by player name, so updates never overwrite them.
+notes=Overall now follows a player's ratings: raise a rating in the dev tools and his overall moves with it (the project's own formula for each position).

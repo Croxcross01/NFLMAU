@@ -8,6 +8,7 @@
 // The result is mods/rosters/<set>/qkl_boot.ast (used by the game instead of the original), rebuilt when any of
 // these inputs change (built.txt keeps their fingerprint). Nothing from the game is in this repository.
 #include "gamedb.h"
+#include "overall_core.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -176,6 +177,13 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
     std::map<int, std::vector<int>> tmpl;
     for (int i = 0; i < MP->used; i++) if (master.Get(*MP, i, "POVR") >= 40) tmpl[(int)master.Get(*MP, i, "PPOS")].push_back(i);
     const auto synthFields = SynthFields();
+    // the project's overall formula, put on the game's scale with the original players
+    ovr::Fit fit;
+    for (int i = 0; i < MP->used; i++) {
+        int pos = (int)master.Get(*MP, i, "PPOS"), o = (int)master.Get(*MP, i, "POVR"); if (o < 40) continue;
+        fit.Add(pos, ovr::Score(pos, [&](const char* f) { return (double)master.Get(*MP, i, f); }), o);
+    }
+    fit.Solve();
     // A full set of ratings for overall T at position pos: the average of the original players at that position whose
     // overalls are closest to T, moved up or down to T (speed and the other physical ratings move less), aged.
     auto synth = [&](Db& db, Table& T, int row, int pos, int target, int age) {
@@ -297,12 +305,18 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
         if (!named.empty()) for (int i = 0; i < TP->used; i++) {
             auto ne = named.find(Key(db.Str(*TP, i, "PFNA"), db.Str(*TP, i, "PLNA")) + "#" + std::to_string(tid));
             if (ne == named.end()) continue;
-            bool onlyOvr = true; int ovr = 0;
-            for (auto& [f, v] : ne->second) { if (f == "POVR") ovr = atoi(v.c_str()); else for (auto sf : synthFields) if (f == sf) onlyOvr = false; }
-            if (ovr > 0 && onlyOvr) synth(db, *TP, i, (int)db.Get(*TP, i, "PPOS"), std::max(40, std::min(99, ovr)), (int)db.Get(*TP, i, "PAGE"));
+            bool onlyOvr = true; int ovrSet = 0;
+            for (auto& [f, v] : ne->second) { if (f == "POVR") ovrSet = atoi(v.c_str()); else for (auto sf : synthFields) if (f == sf) onlyOvr = false; }
+            int pos = (int)db.Get(*TP, i, "PPOS");
+            if (ovrSet > 0 && onlyOvr) synth(db, *TP, i, pos, std::max(40, std::min(99, ovrSet)), (int)db.Get(*TP, i, "PAGE"));
             for (auto& [f, v] : ne->second) {
+                if (f == "POVR" && !onlyOvr) continue;   // ratings were set: the overall follows them (below)
                 const gdb::Field* fd = TP->F(f.c_str()); if (!fd) continue;
                 if (fd->type == 0) db.SetStr(*TP, i, f.c_str(), v); else db.Set(*TP, i, f.c_str(), (uint32_t)strtoul(v.c_str(), nullptr, 10));
+            }
+            if (!onlyOvr) {
+                int o = fit.Overall(pos, ovr::Score(pos, [&](const char* f) { return (double)db.Get(*TP, i, f); }));
+                db.Set(*TP, i, "POVR", (uint32_t)o); db.Set(*TP, i, "PLPO", (uint32_t)o);
             }
         }
         // depth chart: keep its rows, re-rank each position's players
