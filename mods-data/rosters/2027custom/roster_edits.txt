@@ -1,0 +1,8 @@
+# Madden Arcade PC roster edits: <player id> <field> <value>. Applied to your own game's roster.
+1095 PGHE 246
+1095 PHSN 17
+1095 PSKI 0
+1095 PSXP 1650
+17272 PHSN 17
+17272 PSKI 0
+17272 PSXP 1648

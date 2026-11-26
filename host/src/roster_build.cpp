@@ -126,12 +126,13 @@ std::vector<const char*> SynthFields() {
 // games: every PC builds the identical roster from the shared facts).
 bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const std::string& outDir, bool withRatings) {
     namespace fs = std::filesystem;
-    std::string factsPath = setDir + "/roster.tsv", ratingsPath = withRatings ? setDir + "/ratings.csv" : std::string(), editsPath = setDir + "/roster_edits.txt", picksPath = setDir + "/my_stars.txt";
+    std::string factsPath = setDir + "/roster.tsv", ratingsPath = withRatings ? setDir + "/ratings.csv" : std::string(), editsPath = setDir + "/roster_edits.txt", picksPath = setDir + "/my_stars.txt",
+                shippedNamed = setDir + "/roster_ratings.tsv", myNamed = setDir + "/my_edits.tsv";
     std::string out = outDir + "/qkl_boot.ast", src = gameDir + "/qkl_boot.ast";
     std::error_code mk; fs::create_directories(outDir, mk);
     if (!fs::exists(factsPath)) return fs::exists(out);   // a set made with the dev tools: nothing to build
     std::error_code ec; auto gsz = fs::file_size(src, ec);
-    char stamp[64]; uint64_t h = Fnv(FileText(factsPath)); h = Fnv(FileText(ratingsPath), h); h = Fnv(FileText(editsPath), h); h = Fnv(FileText(picksPath), h); h = Fnv(std::to_string(gsz), h);
+    char stamp[64]; uint64_t h = Fnv(FileText(factsPath)); h = Fnv(FileText(ratingsPath), h); h = Fnv(FileText(editsPath), h); h = Fnv(FileText(picksPath), h); h = Fnv(FileText(shippedNamed), h); h = Fnv(FileText(myNamed), h); h = Fnv(std::to_string(gsz), h);
     snprintf(stamp, sizeof stamp, "v3 %016llx", (unsigned long long)h);
     if (fs::exists(out) && FileText(outDir + "/built.txt").rfind(stamp, 0) == 0) return true;
 
@@ -140,6 +141,16 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
     auto facts = ReadTable(factsPath, '\t');
     // my_stars.txt: the player's own star / overall picks (dev tools Rosters tab), kept apart from roster.tsv so updates
     // never overwrite them. They win over roster.tsv and over the ratings file for those players.
+    // Ratings / details set by name (first, last, team, field, value): roster_ratings.tsv ships with the set (the roster
+    // maker's own ratings), my_edits.tsv is the player's own (dev tools Rosters tab; updates never touch it) and wins.
+    std::map<std::string, std::vector<std::pair<std::string, std::string>>> named;   // "key#team" -> (field, value)
+    for (const std::string* path : {&shippedNamed, &myNamed})
+        for (auto& e : ReadTable(*path, '\t')) {
+            std::string f = S(e, "field"); if (f.empty()) continue;
+            auto& v = named[Key(S(e, "first"), S(e, "last")) + "#" + std::to_string(Num(e, "team"))];
+            bool done = false; for (auto& fv : v) if (fv.first == f) { fv.second = S(e, "value"); done = true; }
+            if (!done) v.push_back({f, S(e, "value")});
+        }
     std::set<std::string> picked;
     for (auto& pk : ReadTable(picksPath, '\t')) {
         std::string k = Key(S(pk, "first"), S(pk, "last")); int tm = Num(pk, "team");
@@ -201,6 +212,8 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
         Player p; p.fact = r; p.team = Num(r, "team"); p.pos = PosId(S(r, "position")); p.key = Key(S(r, "first"), S(r, "last"));
         if (p.team <= 0 || p.pos < 0) continue;
         auto rt = rateBy.find(p.key + "#" + std::to_string(p.team)); if (rt == rateBy.end()) rt = rateBy.find(p.key);
+        if (auto ne = named.find(p.key + "#" + std::to_string(p.team)); ne != named.end())
+            for (auto& [f, v] : ne->second) if (f == "POVR") { r["ovr"] = v; picked.insert(p.key + "#" + std::to_string(p.team)); }
         bool mine = picked.count(p.key + "#" + std::to_string(p.team)) && (Num(r, "stars") > 0 || Num(r, "ovr") > 0);
         if (rt != rateBy.end() && !mine) p.rate = rt->second;
         if (p.rate) p.ovr = Num(*p.rate, "OVERALL");
@@ -280,6 +293,18 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
             placed[pgid] = p;
         }
         applyEdits(db, *TP);
+        // named edits (roster_ratings.tsv, my_edits.tsv); an overall on its own rebuilds his other ratings to match
+        if (!named.empty()) for (int i = 0; i < TP->used; i++) {
+            auto ne = named.find(Key(db.Str(*TP, i, "PFNA"), db.Str(*TP, i, "PLNA")) + "#" + std::to_string(tid));
+            if (ne == named.end()) continue;
+            bool onlyOvr = true; int ovr = 0;
+            for (auto& [f, v] : ne->second) { if (f == "POVR") ovr = atoi(v.c_str()); else for (auto sf : synthFields) if (f == sf) onlyOvr = false; }
+            if (ovr > 0 && onlyOvr) synth(db, *TP, i, (int)db.Get(*TP, i, "PPOS"), std::max(40, std::min(99, ovr)), (int)db.Get(*TP, i, "PAGE"));
+            for (auto& [f, v] : ne->second) {
+                const gdb::Field* fd = TP->F(f.c_str()); if (!fd) continue;
+                if (fd->type == 0) db.SetStr(*TP, i, f.c_str(), v); else db.Set(*TP, i, f.c_str(), (uint32_t)strtoul(v.c_str(), nullptr, 10));
+            }
+        }
         // depth chart: keep its rows, re-rank each position's players
         auto rating = [&](uint32_t pg, const char* field) { for (int i = 0; i < TP->used; i++) if (db.Get(*TP, i, "PGID") == pg) return (int)db.Get(*TP, i, field); return 0; };
         std::map<int, std::vector<int>> groups;

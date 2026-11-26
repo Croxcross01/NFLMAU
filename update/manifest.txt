@@ -1,5 +1,5 @@
-version=1.0.44
-pack=update/pack-1.0.44.zip
-sha256=1be3bc4b497f0213a13d662f865b9b485216913a3a9bfb6575006c84c605a6e9
+version=1.0.45
+pack=update/pack-1.0.45.zip
+sha256=f05617be4c944c18b8f6494a930e3215036e787529e5017473e023e8409cf728
 rebuild=0
-notes=Better ratings for players without a ratings file: stars and overalls build a full set of ratings for each player; star picks for the biggest names.
+notes=New Custom 2027 Roster on the Mods page: set the ratings yourself in the dev tools. Roster edits are now kept by player name, so updates never overwrite them.
