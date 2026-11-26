@@ -94,7 +94,30 @@ std::string FileText(const std::string& p) { std::string s; FILE* f = fopen(p.c_
 struct Player {
     std::map<std::string, std::string> fact; const std::map<std::string, std::string>* rate = nullptr;
     int pos = -1, team = 0, ovr = 0; std::string key;
+    int target = 0;   // placeholder overall (no ratings file): from the roster's ovr / stars columns or his facts; 0 = keep
 };
+// Placeholder overall for a player the ratings file does not cover. The roster's own columns decide: "ovr" (an overall
+// the roster maker set) or "stars" (1-5). Without either, a new player gets a modest overall from his years in the league.
+int TargetOverall(const std::map<std::string, std::string>& r, bool known) {
+    int o = Num(r, "ovr"); if (o > 0) return std::max(40, std::min(99, o));
+    int st = Num(r, "stars");
+    if (st > 0) {
+        static const int base[6] = {0, 62, 70, 78, 86, 93};
+        int yp = std::min(10, Num(r, "years_pro")), age = Num(r, "age", 26);
+        int v = base[std::min(5, st)] + (st >= 3 ? std::min(3, yp / 3) : 0) - (age >= 35 ? std::min(4, age - 34) : 0);
+        return std::max(40, std::min(99, v));
+    }
+    if (known) return 0;   // a player from the original game keeps his own ratings
+    int yp = Num(r, "years_pro"), age = Num(r, "age", 25);
+    return std::max(50, std::min(74, 58 + 2 * std::min(7, yp) - (age >= 33 ? 2 * (age - 32) : 0)));
+}
+// Rating fields the placeholder builder fills (everything the ratings file would set except the overall itself).
+std::vector<const char*> SynthFields() {
+    std::vector<const char*> v;
+    for (auto& [field, cols] : kRatings) { std::string f = field; if (f == "POVR" || f == "PLPO") continue;
+        bool dup = false; for (auto x : v) if (f == x) dup = true; if (!dup) v.push_back(field); }
+    return v;
+}
 }   // namespace
 
 // Build (if needed) the roster set <set> from <gameDir>/qkl_boot.ast. Returns false on a problem (the game then uses the
@@ -103,18 +126,27 @@ struct Player {
 // games: every PC builds the identical roster from the shared facts).
 bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const std::string& outDir, bool withRatings) {
     namespace fs = std::filesystem;
-    std::string factsPath = setDir + "/roster.tsv", ratingsPath = withRatings ? setDir + "/ratings.csv" : std::string(), editsPath = setDir + "/roster_edits.txt";
+    std::string factsPath = setDir + "/roster.tsv", ratingsPath = withRatings ? setDir + "/ratings.csv" : std::string(), editsPath = setDir + "/roster_edits.txt", picksPath = setDir + "/my_stars.txt";
     std::string out = outDir + "/qkl_boot.ast", src = gameDir + "/qkl_boot.ast";
     std::error_code mk; fs::create_directories(outDir, mk);
     if (!fs::exists(factsPath)) return fs::exists(out);   // a set made with the dev tools: nothing to build
     std::error_code ec; auto gsz = fs::file_size(src, ec);
-    char stamp[64]; uint64_t h = Fnv(FileText(factsPath)); h = Fnv(FileText(ratingsPath), h); h = Fnv(FileText(editsPath), h); h = Fnv(std::to_string(gsz), h);
-    snprintf(stamp, sizeof stamp, "v2 %016llx", (unsigned long long)h);
+    char stamp[64]; uint64_t h = Fnv(FileText(factsPath)); h = Fnv(FileText(ratingsPath), h); h = Fnv(FileText(editsPath), h); h = Fnv(FileText(picksPath), h); h = Fnv(std::to_string(gsz), h);
+    snprintf(stamp, sizeof stamp, "v3 %016llx", (unsigned long long)h);
     if (fs::exists(out) && FileText(outDir + "/built.txt").rfind(stamp, 0) == 0) return true;
 
     fprintf(stderr, "[mods] roster: building %s from your game files...\n", setDir.c_str());
     gdb::Archive ar; if (!ar.Open(src)) { fprintf(stderr, "[mods] roster: cannot read %s\n", src.c_str()); return false; }
     auto facts = ReadTable(factsPath, '\t');
+    // my_stars.txt: the player's own star / overall picks (dev tools Rosters tab), kept apart from roster.tsv so updates
+    // never overwrite them. They win over roster.tsv and over the ratings file for those players.
+    std::set<std::string> picked;
+    for (auto& pk : ReadTable(picksPath, '\t')) {
+        std::string k = Key(S(pk, "first"), S(pk, "last")); int tm = Num(pk, "team");
+        for (auto& r : facts) if (Key(S(r, "first"), S(r, "last")) == k && (tm <= 0 || Num(r, "team") == tm)) {
+            r["stars"] = S(pk, "stars"); r["ovr"] = S(pk, "ovr"); picked.insert(k + "#" + std::to_string(Num(r, "team")));
+        }
+    }
     auto ratings = ReadTable(ratingsPath, ',');
     std::map<std::string, const std::map<std::string, std::string>*> rateBy;
     for (auto& r : ratings) {   // by name + team (two players can share a name), and by name alone
@@ -129,14 +161,54 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
     std::map<std::string, int> known; std::map<uint32_t, int> mindex;
     for (int i = 0; i < MP->used; i++) { known.emplace(Key(master.Str(*MP, i, "PFNA"), master.Str(*MP, i, "PLNA")), i); mindex[master.Get(*MP, i, "PGID")] = i; }
 
+    // the original game's players by position: the placeholder builder's templates
+    std::map<int, std::vector<int>> tmpl;
+    for (int i = 0; i < MP->used; i++) if (master.Get(*MP, i, "POVR") >= 40) tmpl[(int)master.Get(*MP, i, "PPOS")].push_back(i);
+    const auto synthFields = SynthFields();
+    // A full set of ratings for overall T at position pos: the average of the original players at that position whose
+    // overalls are closest to T, moved up or down to T (speed and the other physical ratings move less), aged.
+    auto synth = [&](Db& db, Table& T, int row, int pos, int target, int age) {
+        auto it = tmpl.find(pos); if (it == tmpl.end() || it->second.empty()) return;
+        std::vector<int> c = it->second;
+        std::stable_sort(c.begin(), c.end(), [&](int a, int b) {
+            return std::abs((int)master.Get(*MP, a, "POVR") - target) < std::abs((int)master.Get(*MP, b, "POVR") - target); });
+        if (c.size() > 4) c.resize(4);
+        double ovr = 0; for (int i : c) ovr += master.Get(*MP, i, "POVR"); ovr /= c.size();
+        double d = target - ovr;
+        for (const char* f : synthFields) {
+            if (!T.F(f)) continue;
+            double v = 0; for (int i : c) v += master.Get(*MP, i, f); v /= c.size();
+            std::string fs = f;
+            bool phys = fs == "PSPD" || fs == "PACC" || fs == "PAGI" || fs == "PJMP" || fs == "PSTR";
+            if (v >= 30) v += d * (phys ? 0.5 : 1.0);   // a rating that matters for the position follows the overall
+            // blended with the trend across every original player at the position (so a better player is better at
+            // what the position needs, not just like whoever happened to be nearest)
+            double n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+            for (int i : it->second) { double x = master.Get(*MP, i, "POVR"), y = master.Get(*MP, i, f); n++; sx += x; sy += y; sxx += x * x; sxy += x * y; }
+            if (n >= 5 && n * sxx - sx * sx > 1) {
+                double slope = (n * sxy - sx * sy) / (n * sxx - sx * sx), icpt = (sy - slope * sx) / n;
+                v = 0.6 * (icpt + slope * target) + 0.4 * v;
+            }
+            if (phys && age >= 31) v -= std::min(8, 2 * (age - 30));
+            db.Set(T, row, f, (uint32_t)std::max(15, std::min(99, (int)std::lround(v))));
+        }
+        db.Set(T, row, "POVR", (uint32_t)target); db.Set(T, row, "PLPO", (uint32_t)target);
+    };
+    int synthCount = 0;
+
     std::map<int, std::vector<Player>> byTeam;
     for (auto& r : facts) {
         Player p; p.fact = r; p.team = Num(r, "team"); p.pos = PosId(S(r, "position")); p.key = Key(S(r, "first"), S(r, "last"));
         if (p.team <= 0 || p.pos < 0) continue;
         auto rt = rateBy.find(p.key + "#" + std::to_string(p.team)); if (rt == rateBy.end()) rt = rateBy.find(p.key);
-        if (rt != rateBy.end()) p.rate = rt->second;
+        bool mine = picked.count(p.key + "#" + std::to_string(p.team)) && (Num(r, "stars") > 0 || Num(r, "ovr") > 0);
+        if (rt != rateBy.end() && !mine) p.rate = rt->second;
         if (p.rate) p.ovr = Num(*p.rate, "OVERALL");
-        else { auto k = known.find(p.key); p.ovr = k != known.end() ? (int)master.Get(*MP, k->second, "POVR") : 55 + 2 * std::min(8, Num(r, "years_pro")); }
+        else {
+            auto k = known.find(p.key);
+            p.target = TargetOverall(r, k != known.end());
+            p.ovr = p.target ? p.target : (int)master.Get(*MP, k->second, "POVR");
+        }
         byTeam[p.team].push_back(p);
     }
     int matchedRatings = 0; for (auto& [t, v] : byTeam) for (auto& p : v) if (p.rate) matchedRatings++;
@@ -204,6 +276,7 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
                 int sum = 0; for (auto c : cols) sum += Num(*p->rate, c);
                 db.Set(*TP, i, field, (uint32_t)std::max(0, std::min(99, (int)std::lround((double)sum / cols.size()))));
             }
+            else if (p->target) { synth(db, *TP, i, p->pos, p->target, Num(p->fact, "age", 26)); synthCount++; }
             placed[pgid] = p;
         }
         applyEdits(db, *TP);
@@ -301,7 +374,7 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
     repl[70] = master.d;
     if (!ar.WritePatched(out, repl)) { fprintf(stderr, "[mods] roster: could not write %s\n", out.c_str()); return false; }
     if (FILE* f = fopen((outDir + "/built.txt").c_str(), "wb")) { fprintf(f, "%s\n", stamp); fclose(f); }
-    fprintf(stderr, "[mods] roster: built %s (%zu teams)\n", out.c_str(), teamRatings.size());
+    fprintf(stderr, "[mods] roster: built %s (%zu teams, %d players with placeholder ratings)\n", out.c_str(), teamRatings.size(), synthCount);
     return true;
 }
 
