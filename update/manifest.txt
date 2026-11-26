@@ -1,5 +1,5 @@
-version=1.0.48
-pack=update/pack-1.0.48.zip
-sha256=0df6e2b31229f7b76ae2c21b54efd468751de090e4eb8a6f2137d2b312325f48
+version=1.0.49
+pack=update/pack-1.0.49.zip
+sha256=4eea962397969dc7dd2c6a77de6abe2a06d3542290fe87a3936052cfac359c94
 rebuild=0
-notes=Sign and release players in the dev tools Depth Chart tab: see who didn't make each team and sign them. Will Johnson and Jeremiyah Love make the Cardinals.
+notes=Jalon Walker starts at LE for the Falcons.
