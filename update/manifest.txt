@@ -1,5 +1,5 @@
-version=1.0.49
-pack=update/pack-1.0.49.zip
-sha256=4eea962397969dc7dd2c6a77de6abe2a06d3542290fe87a3936052cfac359c94
+version=1.0.50
+pack=update/pack-1.0.50.zip
+sha256=1c0853a55737a0ead1ad871bc3f751ca92a11437cae2f7441edd6694c41ec23a
 rebuild=0
-notes=Jalon Walker starts at LE for the Falcons.
+notes=New mode: Towers. Pick it under Play Now on the main menu, choose your team, and climb the Gridiron Tower: beat all 31 other teams, weakest to strongest, on All-Madden with standard controls. Lose and you face that team again. After each game you go back to the tower. Your climb is saved after every game in one of 3 save slots (press Y on the tower for Saves or a New Tower).

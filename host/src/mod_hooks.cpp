@@ -12,6 +12,7 @@ bool GeneratePlaybookList(const std::string& gameDir, const std::string& outPath
 //   mods/teams.ini ("<team id>=<art team id>", e.g. 1021=13) use the art of the given team instead.
 #include "kernel.h"
 #include "lineup_ui.h"
+#include "towers_ui.h"
 #include "playcall_ui.h"
 #include <thread>
 #include <cstdio>
@@ -22,6 +23,7 @@ bool GeneratePlaybookList(const std::string& gameDir, const std::string& outPath
 #include <cstdlib>
 std::string PlaybookEditsStamp();   // playbook_mod.cpp
 bool OnlineMode();   // xam.cpp
+#include <functional>
 #include <map>
 #include <mutex>
 #include <set>
@@ -373,6 +375,11 @@ void ModDbQuery(PPCRegister& r1, PPCRegister& r6, PPCRegister& r7, PPCRegister& 
     auto argGet = [&](size_t i) -> uint32_t { return i < 4 ? regs[i]->u32 : ReadU32(r1.u32 + 84 + 8 * uint32_t(i - 4)); };
     auto argSet = [&](size_t i, uint32_t v) { if (i < 4) regs[i]->u64 = v; else WriteU32(r1.u32 + 84 + 8 * uint32_t(i - 4), v); };
     size_t nargs = argPos.size() < 16 ? argPos.size() : 16;
+    {   // Towers ladder: teams of a Towers game, its result
+        void TowersQuery(const std::string&, size_t, const std::function<uint32_t(size_t)>&, const std::function<void(size_t, uint32_t)>&);
+        TowersQuery(std::string(text), nargs, argGet, argSet);
+        if (strncmp(text, "select 'YTPG' into ? from 'FNIG'", 32) == 0 && StackChain(r1.u32).compare(1, 8, "886191B0") == 0) { void TowersTeamSelectOpened(); TowersTeamSelectOpened(); }
+    }
     if (ModDebug()) {   // diagnostics: team / match-setup queries with their arguments
         static std::mutex dm; static int dn = 0;
         std::string t(text);
@@ -392,9 +399,34 @@ void ModDbQuery(PPCRegister& r1, PPCRegister& r6, PPCRegister& r7, PPCRegister& 
             if (pbSeq != g_matchSeq) { pbSeq = g_matchSeq; pbN = 0; }
             if (pbN++ >= 20) watch = false;
         }
+        // Towers probe (TestBuild, mods/towers.on): every write to the game's tables, to find where the match
+        // teams and the final score are kept
+        static const bool probe = [] { const char* d = getenv("MADDEN_MODS_ROOT"); FILE* f = fopen((std::string(d ? d : "mods") + "/towers_probe.on").c_str(), "rb"); if (f) { fclose(f); return true; } return false; }();   // mods/towers_probe.on
+        if (probe && (write || t.find("'FNIG'") != std::string::npos || t.find("'MTTS'") != std::string::npos)) watch = true;
+        // Towers probe: values the game reads from its game info table, logged when they change (score, quarter...);
+        // the per-frame reads themselves are not logged (they filled the log before the game ended)
+        if (probe) {
+            static std::vector<std::pair<std::string, uint32_t>> pending; static std::map<std::string, uint32_t> last;
+            std::lock_guard<std::mutex> l(dm);
+            for (auto& [key, ptr] : pending) {
+                if (ptr < 0x10000 || ptr >= 0xE0000000u) continue;
+                uint32_t v = ReadU32(ptr);
+                auto it = last.find(key);
+                if (it == last.end() || it->second != v) { last[key] = v; static int vn = 0; if (vn++ < 20000) fprintf(stderr, "[towers] value %s = %d\n", key.c_str(), int(v)); }
+            }
+            pending.clear();
+            if (t.compare(0, 6, "select") == 0 && (t.find("from 'FNIG'") != std::string::npos || t.find("from 'MAET'") != std::string::npos || t.find("from 'MTTS'") != std::string::npos)) {
+                std::vector<std::string> fields; size_t k = 0;
+                while ((k = t.find("'", k)) != std::string::npos && k < t.find(" from")) { size_t e = t.find("'", k + 1); if (e == std::string::npos) break; fields.push_back(t.substr(k + 1, e - k - 1)); k = e + 1; }
+                size_t ninto = 0; for (size_t q = 0; (q = t.find("into ?", q)) != std::string::npos; q += 6) ninto++;
+                std::string table = t.substr(t.find(" from ") + 6, 6);
+                for (size_t i = 0; i < ninto && i < nargs; i++) pending.push_back({table + "." + (i < fields.size() ? fields[i] : "?" + std::to_string(i)), argGet(i)});
+                if (t.find("select 'GTHG' into ? from 'FNIG'") == 0 || t.find("select 'GTAG' into ? from 'FNIG'") == 0) watch = false;
+            }
+        }
         if (watch) {
             std::lock_guard<std::mutex> l(dm);
-            if (dn++ < 6000) {
+            if (dn++ < (probe ? 40000 : 6000)) {
                 fprintf(stderr, "[mods] team query:");
                 for (size_t i = 0; i < nargs && i < 12; i++) fprintf(stderr, " %X", argGet(i));
                 fprintf(stderr, " | %.150s | from%s\n", text, ch.substr(0, 36).c_str());
@@ -579,6 +611,7 @@ bool GuardReleaseInline(PPCRegister& r1, PPCRegister& r11, PPCRegister& r26, PPC
 // team ids of the match and their roster file names (TDAN), once per match setup.
 void ModMatchTeams(PPCRegister& r1, PPCRegister& r31) {
     auto str = [](uint32_t a) { std::string o; for (int i = 0; i < 40; i++) { char c = (char)g_base[a + i]; if (!c) break; o += (c >= 32 && c < 127) ? c : '?'; } return o; };
+    { void TowersMatchTeams(uint32_t, uint32_t); TowersMatchTeams(r31.u32, r1.u32); }   // Towers: your team vs the tower's next opponent
     g_matchHome = ReadU32(r31.u32 + 192); g_matchAway = ReadU32(r31.u32 + 200); g_matchSeq++;
     { extern std::atomic<int64_t> g_matchLoadStart; g_matchLoadStart = std::chrono::steady_clock::now().time_since_epoch().count(); }
     fprintf(stderr, "[mods] match teams: home %u (%s), away %u (%s)\n", g_matchHome, str(r1.u32 + 176).c_str(),
@@ -628,11 +661,21 @@ void ModNameHash(PPCRegister& r3) {
     uint32_t a = r3.u32;
     if (a < 0x10000 || a >= 0xE0000000u) return;
     StadiumRename(a);
-    if (!ModDebug()) return;
     std::string n;
     for (int i = 0; i < 160; i++) { char c = (char)g_base[a + i]; if (!c) break; n += (c >= 32 && c < 127) ? c : '?'; }
+    {   // Towers: a main-menu button with a game mode (Play Now) makes the game look up GAMEMODE; Towers has none.
+        // Seen before team select opens = Play Now, not seen = Towers.
+        static bool modeSeen = false;
+        void TowersTeamSelect(bool towers);
+        if (n == "GAMEMODE") modeSeen = true;
+        else if (n.size() > 18 && (n.find("madden_scrmainmenu") != std::string::npos || n.find("MADDEN_SCRMAINMENU") != std::string::npos)) { void TowersMainMenu(); TowersMainMenu(); }
+        // (team select itself is now seen through its FNIG.GPTY read, every time it opens - see TowersQuery below)
+    }
+    if (!ModDebug()) return;
     static std::mutex m; static std::set<std::string> seen;
     std::lock_guard<std::mutex> l(m);
+    bool screen = n.find("Strategy=") != std::string::npos || n.find("TeamSelect") != std::string::npos || n.find("TEAMSELECT") != std::string::npos;
+    if (screen) { static int sn = 0; if (sn++ < 400) fprintf(stderr, "[name] (screen) %s\n", n.c_str()); return; }   // every time: which button opened team select
     if (seen.size() < 20000 && seen.insert(n).second) fprintf(stderr, "[name] %s\n", n.c_str());
 }
 
@@ -864,6 +907,10 @@ void ModBuildDepthCharts() {
     InstallLinesHook();
     PPCContext* live = CurrentGuestContext();
     if (!live) return;
+    {   // Towers: the ladder screen while the match loads (the loading-screen UI is held meanwhile, as for the lineup picker)
+        bool TowersLadder(TowerView&); TowerView tv;
+        if (TowersLadder(tv)) { g_pickerOpen = true; ShowTowerLadder(tv); g_pickerOpen = false; }
+    }
     struct Pick { PPCContext* l; ~Pick() { LineupPicker(*l); } } pick{live};   // after the build below (any return)
     if (g_artMap.empty()) return;
     static uint32_t qCount = 0, qPlayer, qInsert, out;

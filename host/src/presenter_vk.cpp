@@ -25,6 +25,7 @@ void DumpGuestThreads();
 #include <vector>
 #include <string>
 #include <string>
+std::string TowersStatus();   // towers.cpp: the Towers climb, for the window title
 void PerfName(const std::string& name);
 void PerfStart();
 #ifndef _WIN32
@@ -440,7 +441,8 @@ void RenderThread() {
         snprintf(t, sizeof t, "Madden Arcade Unleashed  |  Vulkan - %s  |  internal %ux%u (%ux)%s%s", vp.gpuName.c_str(),
                  1280 * g_settings.resolutionScale, 720 * g_settings.resolutionScale, g_settings.resolutionScale,
                  g_settings.showFps ? "  |  " : "", g_settings.showFps ? (std::to_string((int)(fps + 0.5)) + " fps").c_str() : "");
-        vp.win.SetTitle(t);
+        std::string full = t; { std::string ts = ::TowersStatus(); if (!ts.empty()) full += "  |  " + ts; }
+        vp.win.SetTitle(full);
     };
     title(0);
     while (g_running) {

@@ -1,6 +1,7 @@
 // Archive entry overrides (see archive_overlay.h).
 #include "archive_overlay.h"
 #include "platform.h"
+#include "deflate_lite.h"
 #include <algorithm>
 #include <cstring>
 #include <map>
@@ -11,6 +12,7 @@ struct ArchiveOverlay {
     uint64_t realSize = 0;
     uint64_t tableOff = 0; std::vector<uint8_t> table;   // the archive's entry table, with the replaced records
     uint64_t tailOff = 0; std::vector<uint8_t> tail;     // replaced entries, past the end of the real file
+    std::vector<std::pair<uint64_t, std::vector<uint8_t>>> inPlace;   // replaced entries that fit where the original was
 };
 
 static std::mutex g_m;
@@ -61,19 +63,40 @@ ArchiveOverlay* OverlayFor(const std::string& hostPath) {
                     uint64_t rec = (tsz - pre) / cnt; int fb = int(rec - hs - w1 - w2 - w3 - nl);
                     if (fread(o->table.data(), 1, tsz, fp) == tsz && (fb == 1 || fb == 2)) {
                         uint64_t align = 1ull << sh;
+                        // where each entry's space ends (the next entry, the table, or the end of the file)
+                        std::vector<uint64_t> starts;
+                        for (uint32_t k = 0; k < cnt; k++) { const uint8_t* q = o->table.data() + pre + k * rec; starts.push_back(LE(q + fb + hs, w1) << sh); }
+                        starts.push_back(toff); starts.push_back(size);
+                        std::sort(starts.begin(), starts.end());
                         o->tailOff = (size + align - 1) / align * align;
                         for (auto& [idx, data] : ents->second) {
                             if (idx >= cnt) continue;
-                            uint64_t at = o->tailOff + o->tail.size();
-                            at = (at + align - 1) / align * align;
-                            o->tail.resize(at - o->tailOff);
-                            o->tail.insert(o->tail.end(), data.begin(), data.end());
+                            uint64_t at = 0;
                             uint8_t* r = o->table.data() + pre + idx * rec;
-                            PutLE(r, fb, LE(r, fb) & ~1ull);   // stored uncompressed
+                            // an entry the game keeps compressed stays compressed (some loaders always inflate)
+                            bool packed = (LE(r, fb) & 1) != 0;
+                            std::vector<uint8_t> z; if (packed) z = ZlibCompress(data);
+                            if (packed && z.size() > data.size()) packed = false;   // (delta would be negative)
+                            const std::vector<uint8_t>& stored = packed ? z : data;
+                            // written where the original was when it fits (archives the game loads whole into memory,
+                            // like qkl_ram.ast, never see anything past the original end of the file)
+                            uint64_t orig = LE(r + fb + hs, w1) << sh;
+                            uint64_t room = *std::upper_bound(starts.begin(), starts.end(), orig) - orig;
+                            if (stored.size() <= room) {
+                                o->inPlace.push_back({orig, stored});
+                                at = orig;
+                                fprintf(stderr, "[mods] %s entry %u: edited version fits in place (%zu of %llu bytes)\n", BaseName(hostPath).c_str(), idx, stored.size(), (unsigned long long)room);
+                            } else {   // past the end of the real file
+                                at = o->tailOff + o->tail.size();
+                                at = (at + align - 1) / align * align;
+                                o->tail.resize(at - o->tailOff);
+                                o->tail.insert(o->tail.end(), stored.begin(), stored.end());
+                            }
+                            if (!packed) PutLE(r, fb, LE(r, fb) & ~1ull);   // stored uncompressed
                             int x = fb + hs;
                             PutLE(r + x, w1, at >> sh); x += w1;
-                            PutLE(r + x, w2, data.size()); x += w2;
-                            PutLE(r + x, w3, 0);
+                            PutLE(r + x, w2, stored.size()); x += w2;
+                            PutLE(r + x, w3, packed ? data.size() - stored.size() : 0);
                             fprintf(stderr, "[mods] %s entry %u: your edited version (%zu KB)\n", BaseName(hostPath).c_str(), idx, (data.size() + 1023) / 1024);
                         }
                         ov = std::move(o);
@@ -108,6 +131,10 @@ size_t OverlayRead(ArchiveOverlay* o, FILE* fp, uint64_t off, uint8_t* dst, size
             dst[i] = p >= o->tailOff && p - o->tailOff < o->tail.size() ? o->tail[size_t(p - o->tailOff)] : 0;
         }
         got = len;
+    }
+    for (auto& [po, pb] : o->inPlace) {   // edited entries written where the originals were
+        uint64_t a = std::max(off, po), b = std::min<uint64_t>(off + len, po + pb.size());
+        if (a < b) memcpy(dst + (a - off), pb.data() + (a - po), size_t(b - a));
     }
     // the replaced entry table
     uint64_t t0 = o->tableOff, t1 = o->tableOff + o->table.size();
