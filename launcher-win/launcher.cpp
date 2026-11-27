@@ -181,16 +181,30 @@ static std::wstring g_lastUpdate;
 static void CheckModUpdate(bool startup) {
     std::wstring path = g_exeDir + L"\\mods\\mod_update.txt";
     FILE* f = _wfopen(path.c_str(), L"rb"); if (!f) return;
-    char b[512] = {}; fgets(b, sizeof b, f); fclose(f);
-    std::string line = b; while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
-    std::wstring w = Widen(line);
+    unsigned char b[1024] = {}; size_t got = fread(b, 1, sizeof b - 2, f); fclose(f);
+    std::wstring w;
+    if (got >= 2 && (b[1] == 0 || (b[0] == 0xFF && b[1] == 0xFE))) {   // older dev tools wrote UTF-16
+        size_t i = (b[0] == 0xFF && b[1] == 0xFE) ? 2 : 0;
+        for (; i + 1 < got; i += 2) { wchar_t c = (wchar_t)(b[i] | b[i + 1] << 8); if (c == L'\n' || c == L'\r' || !c) break; w += c; }
+    } else {
+        std::string line((const char*)b, got); size_t e = line.find_first_of("\r\n"); if (e != std::string::npos) line.resize(e);
+        w = Widen(line);
+    }
     if (w.empty() || w == g_lastUpdate) return;
     wchar_t seen[512] = L""; GetPrivateProfileStringW(L"launcher", L"seen_update", L"", seen, 512, IniPath().c_str());
     g_lastUpdate = w;
     size_t a = w.find(L'|'), c = a == std::wstring::npos ? a : w.find(L'|', a + 1);
-    std::wstring when = w.substr(0, a), roster = a == std::wstring::npos ? L"" : w.substr(a + 1, c - a - 1), edits = c == std::wstring::npos ? L"?" : w.substr(c + 1);
-    std::wstring msg = L"Mod updated: " + roster + L" - " + edits + L" player edits saved " + when + L". " +
-                       (g_proc ? L"Close the game and press Play again to use it." : L"Press Play to use it.");
+    std::wstring when = w.substr(0, a), roster = a == std::wstring::npos ? L"" : w.substr(a + 1, c - a - 1), edits = c == std::wstring::npos ? L"" : w.substr(c + 1);
+    if (when.size() >= 16 && when[4] == L'-') {   // "2026-11-27 14:05" -> "Nov 27, 2:05 PM"
+        static const wchar_t* mon[] = {L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec"};
+        int mo = _wtoi(when.substr(5, 2).c_str()), d = _wtoi(when.substr(8, 2).c_str()), hh = _wtoi(when.substr(11, 2).c_str()), mm = _wtoi(when.substr(14, 2).c_str());
+        wchar_t t[48]; swprintf(t, 48, L"%ls %d, %d:%02d %ls", mo >= 1 && mo <= 12 ? mon[mo - 1] : L"", d, hh % 12 ? hh % 12 : 12, mm, hh < 12 ? L"AM" : L"PM"); when = t;
+    }
+    std::wstring msg = L"Roster updated";
+    if (!roster.empty()) msg += L"  \x2022  " + roster;
+    if (!edits.empty()) msg += L"  \x2022  " + edits + (edits == L"1" ? L" player edit" : L" player edits");
+    if (!when.empty()) msg += L"  \x2022  " + when;
+    msg += g_proc ? L"  \x2014  restart the game to use it" : L"  \x2014  used next time you press Play";
     g_updateMsg = msg; if (g_frame) Repaint();
     if (!startup || w != seen) { AppendUI(L"\n" + msg + L"\n"); MessageBeep(MB_ICONINFORMATION); }
     WritePrivateProfileStringW(L"launcher", L"seen_update", w.c_str(), IniPath().c_str());
@@ -248,6 +262,7 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT m, WPARAM wp, LPARAM lp) {
         { RECT rc; GetClientRect(hw, &rc); Layout(rc.right, rc.bottom); }
         ShowTab(PAGE_PLAY);
         SetTimer(hw, 7, 2000, nullptr);   // watch for dev tools mod updates
+        SetTimer(hw, 11, 40, nullptr);    // Play page light show (paused while the game runs)
         SetTimer(hw, 8, 5 * 60 * 1000, nullptr);   // look for a new version every 5 minutes while open
         StartAutoUpdate();
         std::thread([] { DetectGpus(); PostMessageW(g_wnd, WM_GPU_DETECTED, 0, 0); }).detach();
@@ -290,7 +305,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
         ReleaseCapture(); bool was = g_down; g_down = false;
         int t = HitAt((short)LOWORD(lp), (short)HIWORD(lp));
         if (was && t >= HIT_NAV && t < HIT_NAV + PAGE_COUNT) { if (t - HIT_NAV != g_page) ShowTab(t - HIT_NAV); }
-        else if (was && t == HIT_PLAY) { OnPlay(); Repaint(); }
+        else if (was && (t == HIT_PLAY || t == HIT_TOWER)) { OnPlay(); Repaint(); }
         else if (was && t >= HIT_CARD && t < HIT_CARD + 3) ShowTab(t == HIT_CARD + 2 ? PAGE_MODS : PAGE_SETTINGS);
         else Repaint();
         return 0; }
@@ -298,7 +313,9 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
     case WM_DRAWITEM: { auto* di = (DRAWITEMSTRUCT*)lp; if (di->CtlType == ODT_BUTTON) { DrawButton(di); return TRUE; } break; }
     case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
         SetTextColor((HDC)wp, kText); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush;
-    case WM_TIMER: if (wp == 7) CheckModUpdate(false); if (wp == 8) CheckForUpdate(); if (wp == 9) PollWho(); if (wp == 10) { KillTimer(hw, 10); if (!g_proc) OnPlay(true); } return 0;
+    case WM_TIMER:
+        if (wp == 11) { if (g_page == PAGE_PLAY && !g_proc && !IsIconic(hw) && IsWindowVisible(hw)) { g_animFrame = true; BuildFrame(); g_animFrame = false; InvalidateRect(hw, &g_animRect, FALSE); } return 0; }
+        if (wp == 7) CheckModUpdate(false); if (wp == 8) CheckForUpdate(); if (wp == 9) PollWho(); if (wp == 10) { KillTimer(hw, 10); if (!g_proc) OnPlay(true); } return 0;
     case WM_UPD: OnUpdMessage(wp, lp); return 0;
     case WM_HOST_READY: HostReady((HostResult*)lp); return 0;
     case WM_JOIN_CHECKED: JoinChecked(wp != 0, (uint32_t)lp); return 0;

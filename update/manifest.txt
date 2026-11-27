@@ -1,5 +1,5 @@
-version=1.0.51
-pack=update/pack-1.0.51.zip
-sha256=b8acb8388d7c77138534b8c37d776436cc160fd438278f177c08524c65e74fa4
+version=1.0.52
+pack=update/pack-1.0.52.zip
+sha256=92f0d8d2f629565d0aa2a3440d632b3863da805c1351028c6cf13b4c44a88c75
 rebuild=0
-notes=Towers: picking Towers on the main menu now always opens Pick Your Team and the tower, and sets All-Madden with standard controls.
+notes=New launcher look: a night football field with chalk plays, a scoreboard ticker, slanted glowing PLAY and Towers buttons, glass cards and restyled buttons with icons. The Play page shows your Towers climb. The roster update banner now reads correctly.

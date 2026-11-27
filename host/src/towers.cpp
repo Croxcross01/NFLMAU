@@ -65,12 +65,18 @@ void MkDir(const std::string& d) {
 #endif
 }
 
+std::string Name(int id);
 void Save() {
     MkDir(Dir());
     if (FILE* f = fopen(StatePath().c_str(), "wb")) {
         fprintf(f, "team=%d\nrung=%d\nwins=%d\nlosses=%d\norder=", g_st.team, g_st.rung, g_st.wins, g_st.losses);
         for (size_t i = 0; i < g_st.order.size(); i++) fprintf(f, "%s%d", i ? "," : "", g_st.order[i]);
-        fputs("\n", f); fclose(f);
+        fputs("\n", f);
+        // names for the launcher's Towers card (read only by the launcher)
+        fprintf(f, "name=%s\n", Name(g_st.team).c_str());
+        if (g_col.count(g_st.team)) fprintf(f, "color=%06X\n", (unsigned)(g_col[g_st.team] & 0xFFFFFF));
+        if (g_st.rung < (int)g_st.order.size()) fprintf(f, "next=%s\n", Name(g_st.order[g_st.rung]).c_str());
+        fclose(f);
     }
 }
 bool ReadState(const std::string& path, State& st);
