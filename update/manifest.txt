@@ -1,5 +1,5 @@
-version=1.0.52
-pack=update/pack-1.0.52.zip
-sha256=92f0d8d2f629565d0aa2a3440d632b3863da805c1351028c6cf13b4c44a88c75
+version=1.0.53
+pack=update/pack-1.0.53.zip
+sha256=50d476b1d7914e6188da24fdc31b7f00ed28326987d5014cafa30754f5d57482
 rebuild=0
-notes=New launcher look: a night football field with chalk plays, a scoreboard ticker, slanted glowing PLAY and Towers buttons, glass cards and restyled buttons with icons. The Play page shows your Towers climb. The roster update banner now reads correctly.
+notes=Starters fixed: the best players now start for every team (Josh Allen over Kyle Allen for the Bills, and over 1,200 other depth chart spots across the league). Your roster rebuilds itself the next time you press Play.

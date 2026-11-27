@@ -136,7 +136,7 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
     if (!fs::exists(factsPath)) return fs::exists(out);   // a set made with the dev tools: nothing to build
     std::error_code ec; auto gsz = fs::file_size(src, ec);
     char stamp[64]; uint64_t h = Fnv(FileText(factsPath)); h = Fnv(FileText(ratingsPath), h); h = Fnv(FileText(editsPath), h); h = Fnv(FileText(picksPath), h); h = Fnv(FileText(shippedNamed), h); h = Fnv(FileText(myNamed), h); h = Fnv(FileText(depthPath), h); h = Fnv(std::to_string(gsz), h);
-    snprintf(stamp, sizeof stamp, "v3 %016llx", (unsigned long long)h);
+    snprintf(stamp, sizeof stamp, "v4 %016llx", (unsigned long long)h);
     if (fs::exists(out) && FileText(outDir + "/built.txt").rfind(stamp, 0) == 0) return true;
 
     fprintf(stderr, "[mods] roster: building %s from your game files...\n", setDir.c_str());
@@ -260,6 +260,7 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
         }
     };
     std::vector<Player*> cuts;
+    std::map<int, std::map<int, std::vector<uint32_t>>> finalDepth;   // team -> position -> players in depth order (for the main database's depth chart)
     for (uint32_t e = 347; e <= 383; e++) {
         if (!ar.Read(e, raw)) continue;
         Db db; if (!db.Load(raw)) continue;
@@ -376,6 +377,7 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
                 if (depth < ordered.size()) db.Set(*D, ks[depth], "PGID", ordered[depth]);
                 db.Set(*D, ks[depth], "ddep", (uint32_t)depth);
             }
+            finalDepth[tid][pos] = ordered;
         }
         // the same records in the main player table
         for (int i = 0; i < TP->used; i++) {
@@ -398,6 +400,35 @@ bool BuildRosterSet(const std::string& gameDir, const std::string& setDir, const
         repl[e] = db.d;
     }
     applyEdits(master, *MP);
+    // The main database has its own depth chart, and the match lineup comes from it: new players simply took over the
+    // old players' rows, so a backup could sit in a starter's row (Kyle Allen started over Josh Allen). Give it the same
+    // order as the team's own database.
+    if (Table* MD = master.T("DCHT")) {
+        std::map<std::pair<int, int>, std::vector<int>> rows;
+        for (int k = 0; k < MD->used; k++) rows[{(int)master.Get(*MD, k, "TGID"), (int)master.Get(*MD, k, "PPOS")}].push_back(k);
+        int fixed = 0;
+        for (auto& [tp, ks] : rows) {
+            auto ft = finalDepth.find(tp.first); if (ft == finalDepth.end()) continue;
+            auto fp = ft->second.find(tp.second); if (fp == ft->second.end()) continue;
+            std::stable_sort(ks.begin(), ks.end(), [&](int a, int b) { return master.Get(*MD, a, "ddep") < master.Get(*MD, b, "ddep"); });
+            std::vector<uint32_t> ord = fp->second;
+            if (ord.size() < ks.size()) {   // more rows here than in the team's database: fill them with other players of that position, best first
+                std::vector<std::pair<int, uint32_t>> extra;
+                for (int i = 0; i < MP->used; i++) if ((int)master.Get(*MP, i, "TGID") == tp.first && (int)master.Get(*MP, i, "PPOS") == tp.second) {
+                    uint32_t pg = master.Get(*MP, i, "PGID"); if (std::find(ord.begin(), ord.end(), pg) == ord.end()) extra.push_back({-(int)master.Get(*MP, i, "POVR"), pg}); }
+                std::sort(extra.begin(), extra.end());
+                for (auto& [o, pg] : extra) { if (ord.size() >= ks.size()) break; ord.push_back(pg); }
+            }
+            std::set<uint32_t> seen(ord.begin(), ord.end());
+            for (size_t d = 0; d < ks.size(); d++) {
+                uint32_t cur = master.Get(*MD, ks[d], "PGID");
+                if (d < ord.size()) { if (cur != ord[d]) { master.Set(*MD, ks[d], "PGID", ord[d]); fixed++; } }
+                else if (seen.count(cur)) { master.Set(*MD, ks[d], "PGID", ord.back()); }   // no one else to put here
+                master.Set(*MD, ks[d], "ddep", (uint32_t)d);
+            }
+        }
+        fprintf(stderr, "[mods] roster: main depth chart matched to the teams' (%d spots changed)\n", fixed);
+    }
     // scale team ratings to the spread of the game's own team list
     std::map<std::string, std::vector<double>> orig;
     if (ar.Read(384, raw)) { Db odb; if (odb.Load(raw)) if (Table* T = odb.T("TEAM")) for (int i = 0; i < T->used; i++) {
