@@ -5,6 +5,10 @@
 #include <cstdio>
 #include <string>
 
+// The runtime ships as a library (libmadden_host.a): a member is only linked when something refers to it, and the
+// game's own weak copies of these functions would otherwise be used. towers.cpp refers to this to pull the file in.
+int g_towersHookLinked = 1;
+
 void TowersMenuItem(const std::string& item);
 void TowersDifficultySet(int value);
 

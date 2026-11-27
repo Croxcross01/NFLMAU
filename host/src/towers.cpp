@@ -127,6 +127,8 @@ bool Done() { return g_st.team && g_st.rung >= (int)g_st.order.size(); }
 void TowersInit(const std::string& gameDir, const std::string& modsDir) {
     std::lock_guard<std::mutex> l(g_m);
     g_gameDir = gameDir; g_modsDir = modsDir; g_enabled = !Exists(modsDir + "/towers.off");
+    extern int g_towersHookLinked;   // towers_hook.cpp (menu item / skill level): linked from the runtime library
+    if (!*(volatile int*)&g_towersHookLinked) fprintf(stderr, "[towers] hooks missing\n");
     if (!g_enabled) return;
     MkDir(Dir());
     if (FILE* a = fopen((Dir() + "/active.txt").c_str(), "rb")) { int n = 1; if (fscanf(a, "%d", &n) == 1 && n >= 1 && n <= kSlots) g_slot = n - 1; fclose(a); }
