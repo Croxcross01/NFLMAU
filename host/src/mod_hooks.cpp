@@ -377,6 +377,8 @@ void ModDbQuery(PPCRegister& r1, PPCRegister& r6, PPCRegister& r7, PPCRegister& 
     size_t nargs = argPos.size() < 16 ? argPos.size() : 16;
     {   // Towers ladder: teams of a Towers game, its result
         void TowersQuery(const std::string&, size_t, const std::function<uint32_t(size_t)>&, const std::function<void(size_t, uint32_t)>&);
+        void StatsQuery(const std::string&, size_t, const std::function<uint32_t(size_t)>&);
+        StatsQuery(std::string(text), nargs, argGet);   // stats of every game (before Towers counts the result)
         TowersQuery(std::string(text), nargs, argGet, argSet);
         if (strncmp(text, "select 'YTPG' into ? from 'FNIG'", 32) == 0 && StackChain(r1.u32).compare(1, 8, "886191B0") == 0) { void TowersTeamSelectOpened(); TowersTeamSelectOpened(); }
     }
@@ -611,7 +613,7 @@ bool GuardReleaseInline(PPCRegister& r1, PPCRegister& r11, PPCRegister& r26, PPC
 // team ids of the match and their roster file names (TDAN), once per match setup.
 void ModMatchTeams(PPCRegister& r1, PPCRegister& r31) {
     auto str = [](uint32_t a) { std::string o; for (int i = 0; i < 40; i++) { char c = (char)g_base[a + i]; if (!c) break; o += (c >= 32 && c < 127) ? c : '?'; } return o; };
-    { void TowersMatchTeams(uint32_t, uint32_t); TowersMatchTeams(r31.u32, r1.u32); }   // Towers: your team vs the tower's next opponent
+    { void StatsMatchStart(); StatsMatchStart(); void TowersMatchTeams(uint32_t, uint32_t); TowersMatchTeams(r31.u32, r1.u32); }   // Towers: your team vs the tower's next opponent
     g_matchHome = ReadU32(r31.u32 + 192); g_matchAway = ReadU32(r31.u32 + 200); g_matchSeq++;
     { extern std::atomic<int64_t> g_matchLoadStart; g_matchLoadStart = std::chrono::steady_clock::now().time_since_epoch().count(); }
     fprintf(stderr, "[mods] match teams: home %u (%s), away %u (%s)\n", g_matchHome, str(r1.u32 + 176).c_str(),

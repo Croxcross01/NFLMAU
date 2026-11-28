@@ -5,8 +5,8 @@
 #include <olectl.h>
 #include <uxtheme.h>
 
-enum { PAGE_PLAY, PAGE_SETTINGS, PAGE_MODS, PAGE_ONLINE, PAGE_LOG, PAGE_COUNT };
-static const wchar_t* kPageNames[] = {L"Play", L"Settings", L"Mods", L"Online", L"Log"};
+enum { PAGE_PLAY, PAGE_STATS, PAGE_SETTINGS, PAGE_MODS, PAGE_ONLINE, PAGE_LOG, PAGE_COUNT };
+static const wchar_t* kPageNames[] = {L"Play", L"Stats", L"Settings", L"Mods", L"Online", L"Log"};
 static const int kSideW = 232;
 static int g_page = PAGE_PLAY;
 static int g_hot = -1;                       // hovered hit id
@@ -27,7 +27,7 @@ static const uint32_t kSide = 0x0A0E18, kAccent = 0x2F8FFF, kAccentHi = 0x8EE3FF
 
 struct Hit { RECT r; int id; };
 static std::vector<Hit> g_hits;              // nav 0..3, PLAY 10, info cards 20..22
-enum { HIT_NAV = 0, HIT_PLAY = 10, HIT_CARD = 20, HIT_TOWER = 30 };
+enum { HIT_NAV = 0, HIT_PLAY = 10, HIT_CARD = 20, HIT_TOWER = 30, HIT_SLOT = 40 };
 static bool g_animFrame = false;             // a light-show frame (Play page): only the moving parts change
 static RECT g_animRect;                      // what a light-show frame repaints
 static std::vector<uint32_t> g_base; static int g_baseW, g_baseH, g_basePage = -1, g_baseGen, g_bgGen;   // picture + shading + sidebar, kept between frames
@@ -194,6 +194,9 @@ static void NavIcon(HDC dc, int i, int cx, int cy, COLORREF c) {
     case PAGE_ONLINE:   // a globe
         Ellipse(dc, cx - 8, cy - 8, cx + 9, cy + 9); Ellipse(dc, cx - 3, cy - 8, cx + 4, cy + 9);
         MoveToEx(dc, cx - 8, cy, nullptr); LineTo(dc, cx + 9, cy); break;
+    case PAGE_STATS:   // bars
+        for (int k = 0; k < 3; k++) { int hgt = 6 + k * 4; Rectangle(dc, cx - 8 + k * 6, cy + 8 - hgt, cx - 4 + k * 6, cy + 8); }
+        break;
     case PAGE_LOG:
         RoundRect(dc, cx - 7, cy - 8, cx + 8, cy + 9, 4, 4);
         for (int k = 0; k < 3; k++) { MoveToEx(dc, cx - 3, cy - 3 + k * 4, nullptr); LineTo(dc, cx + 4, cy - 3 + k * 4); }
@@ -383,6 +386,161 @@ static void Scoreboard(HDC dc, RECT r, const std::wstring& text, uint32_t team, 
         int xx = x + k; double a = x == win.left ? 1.0 - k / 30.0 : k / 30.0; BlendPx(g_px[y * g_fw + xx], 0x05070D, a); }
 }
 
+// ---- Stats page: mods\stats\games.txt, written by the game at the end of every game (see host stats.cpp) ----
+struct StatP { int team = 0, py = 0, att = 0, comp = 0, ptd = 0, ints = 0, ry = 0, ratt = 0, rtd = 0, cy = 0, rec = 0, ctd = 0, pos = -1; std::wstring name; };
+struct StatG { long long when = 0; bool towers = false; int slot = 0; long long climb = 0; int home = 0, hs = 0, away = 0, as = 0, you = 0; std::wstring hn, an; std::vector<StatP> p; };
+static std::vector<StatG> g_stats; static FILETIME g_statsTime{}; static int g_statSlot = -1;
+static void LoadStats() {
+    std::wstring path = g_exeDir + L"\\mods\\stats\\games.txt";
+    WIN32_FILE_ATTRIBUTE_DATA fa{}; if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fa)) { g_stats.clear(); return; }
+    if (!CompareFileTime(&fa.ftLastWriteTime, &g_statsTime)) return;
+    g_statsTime = fa.ftLastWriteTime; g_stats.clear();
+    FILE* f = _wfopen(path.c_str(), L"rb"); if (!f) return;
+    char b[1024];
+    while (fgets(b, sizeof b, f)) {
+        std::string l = b; while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
+        if (l.size() > 2 && l[0] == 'G') {
+            StatG g; char mode[16] = ""; int used = 0;
+            if (sscanf(l.c_str(), "G %lld %15s %d %lld %d %d %d %d %d %n", &g.when, mode, &g.slot, &g.climb, &g.home, &g.hs, &g.away, &g.as, &g.you, &used) < 9) continue;
+            std::string names = l.substr(used); size_t bar = names.find('|');
+            g.hn = Widen(names.substr(0, bar)); g.an = bar == std::string::npos ? L"" : Widen(names.substr(bar + 1));
+            g.towers = !strcmp(mode, "towers"); g_stats.push_back(g);
+        } else if (l.size() > 2 && l[0] == 'P' && !g_stats.empty()) {
+            StatP p; char fn[64] = "", ln[64] = "";
+            if (sscanf(l.c_str(), "P %d %d %d %d %d %d %d %d %d %d %d %d %d %63s %63s", &p.team, &p.py, &p.att, &p.comp, &p.ptd, &p.ints, &p.ry, &p.ratt, &p.rtd, &p.cy, &p.rec, &p.ctd, &p.pos, fn, ln) < 13) continue;
+            std::string nm = std::string(fn) + " " + ln; if (!strcmp(fn, "-")) nm = ln;
+            p.name = Widen(nm); g_stats.back().p.push_back(p);
+        }
+    }
+    fclose(f);
+}
+struct TeamTot { int py = 0, ry = 0, ptd = 0, rtd = 0; const StatP *pass = nullptr, *rush = nullptr, *recv = nullptr; };
+static TeamTot Totals(const StatG& g, int team) {
+    TeamTot t;
+    for (auto& p : g.p) if (p.team == team) {
+        t.py += p.py; t.ry += p.ry; t.ptd += p.ptd; t.rtd += p.rtd;
+        if (p.att && (!t.pass || p.py > t.pass->py)) t.pass = &p;
+        if (p.ratt && (!t.rush || p.ry > t.rush->ry)) t.rush = &p;
+        if (p.rec && (!t.recv || p.cy > t.recv->cy)) t.recv = &p;
+    }
+    return t;
+}
+static std::wstring Num(int v) { std::wstring s = std::to_wstring(v < 0 ? -v : v); for (int i = (int)s.size() - 3; i > 0; i -= 3) s.insert(i, L","); return (v < 0 ? L"-" : L"") + s; }
+static std::wstring When(long long t) { time_t tt = (time_t)t; tm lt{}; localtime_s(&lt, &tt); wchar_t b[40]; wcsftime(b, 40, L"%b %d, %I:%M %p", &lt); return b; }
+
+static void StatCard(RECT r) { FillRoundV(r, 14, 0x131D34, 0x0C1222, 0.94); StrokeRound(r, 14, 0x2C3B5C, 1.0); for (int x = r.left + 16; x < r.right - 16; x++) BlendPx(g_px[(r.top + 1) * g_fw + x], 0x4F8FE8, 0.35); }
+static void Bar(HDC dc, int x, int y, int w, const wchar_t* label, int v, int maxv, uint32_t c) {
+    Txt(dc, label, RECT{x, y, x + 150, y + 20}, g_fSmall, kDim);
+    Txt(dc, Num(v), RECT{x + w - 90, y, x + w, y + 20}, g_fBodyB, kText, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    RECT bg{x, y + 22, x + w, y + 28}; FillRound(bg, 3, 0x1C2742, 1.0);
+    if (maxv > 0 && v > 0) { RECT fr{x, y + 22, x + std::max(6, (int)((long long)w * v / maxv)), y + 28}; FillRound(fr, 3, c, 1.0); }
+}
+static std::wstring Line(const StatP* p, int kind) {
+    if (!p) return L"\x2014";
+    wchar_t b[160];
+    if (kind == 0) swprintf(b, 160, L"%ls  %d/%d, %ls yds, %d TD%ls", p->name.c_str(), p->comp, p->att, Num(p->py).c_str(), p->ptd, p->ints ? (L", " + std::to_wstring(p->ints) + L" INT").c_str() : L"");
+    else if (kind == 1) swprintf(b, 160, L"%ls  %d car, %ls yds, %d TD", p->name.c_str(), p->ratt, Num(p->ry).c_str(), p->rtd);
+    else swprintf(b, 160, L"%ls  %d rec, %ls yds, %d TD", p->name.c_str(), p->rec, Num(p->cy).c_str(), p->ctd);
+    return b;
+}
+static void DrawStatsPage(HDC dc, int cx, int w, int h) {
+    LoadStats();
+    int L = cx + 32, R = w - 32, top = 100, mid = L + (R - L) * 55 / 100;
+    if (g_stats.empty()) {
+        RECT r{L, top, R, top + 150}; StatCard(r);
+        Txt(dc, L"No games yet", RECT{r.left + 28, r.top + 26, r.right - 20, r.top + 60}, g_fCardV, kText);
+        Txt(dc, L"Play a game (Play Now or Towers). When it ends, its passing, rushing and receiving yards show up here.", RECT{r.left + 28, r.top + 64, r.right - 20, r.top + 120}, g_fBody, kDim, DT_WORDBREAK);
+        return;
+    }
+    // ---- last game box score
+    const StatG& g = g_stats.back();
+    RECT lc{L, top, mid - 10, h - 28}; StatCard(lc);
+    int x = lc.left + 26, y = lc.top + 20, cw = lc.right - lc.left - 52;
+    Txt(dc, (std::wstring(g.towers ? L"LAST GAME  \x2022  TOWERS" : L"LAST GAME  \x2022  PLAY NOW") + L"  \x2022  " + When(g.when)).c_str(), RECT{x, y, x + cw, y + 18}, g_fCap, RGB(140, 156, 190)); y += 26;
+    {   wchar_t b[200]; swprintf(b, 200, L"%ls  %d", g.an.c_str(), g.as); Txt(dc, b, RECT{x, y, x + cw, y + 30}, g_fCardV, g.as > g.hs ? kText : kDim); y += 30;
+        swprintf(b, 200, L"%ls  %d", g.hn.c_str(), g.hs); Txt(dc, b, RECT{x, y, x + cw, y + 30}, g_fCardV, g.hs > g.as ? kText : kDim); y += 42; }
+    int teams[2] = {g.away, g.home}; const std::wstring* names[2] = {&g.an, &g.hn};
+    TeamTot tt[2] = {Totals(g, teams[0]), Totals(g, teams[1])};
+    int mx = std::max({tt[0].py + tt[0].ry, tt[1].py + tt[1].ry, 1});
+    for (int k = 0; k < 2; k++) {
+        bool you = g.you && teams[k] == g.you;
+        Txt(dc, (*names[k] + (you ? L"  (you)" : L"")).c_str(), RECT{x, y, x + cw, y + 22}, g_fBodyB, you ? RGB(142, 227, 255) : kText); y += 26;
+        int bw = (cw - 24) / 3;
+        Bar(dc, x, y, bw, L"Passing", tt[k].py, mx, 0x2F8FFF); Bar(dc, x + bw + 12, y, bw, L"Rushing", tt[k].ry, mx, 0x3ED598); Bar(dc, x + 2 * (bw + 12), y, bw, L"Total yards", tt[k].py + tt[k].ry, mx, 0xFFC440); y += 40;
+        Txt(dc, (L"Pass:  " + Line(tt[k].pass, 0)).c_str(), RECT{x, y, x + cw, y + 20}, g_fSmall, kDim); y += 20;
+        Txt(dc, (L"Rush:  " + Line(tt[k].rush, 1)).c_str(), RECT{x, y, x + cw, y + 20}, g_fSmall, kDim); y += 20;
+        Txt(dc, (L"Catch:  " + Line(tt[k].recv, 2)).c_str(), RECT{x, y, x + cw, y + 20}, g_fSmall, kDim); y += 30;
+    }
+    // recent games
+    if (y + 60 < lc.bottom) {
+        Txt(dc, L"RECENT GAMES", RECT{x, y, x + cw, y + 18}, g_fCap, RGB(140, 156, 190)); y += 22;
+        for (int i = (int)g_stats.size() - 1; i >= 0 && y + 22 < lc.bottom - 10; i--) {
+            const StatG& o = g_stats[i]; TeamTot a = Totals(o, o.away), b2 = Totals(o, o.home);
+            wchar_t b[220]; swprintf(b, 220, L"%ls %d - %ls %d   %ls / %ls yds%ls", o.an.c_str(), o.as, o.hn.c_str(), o.hs, Num(a.py + a.ry).c_str(), Num(b2.py + b2.ry).c_str(), o.towers ? L"   \x2022 Towers" : L"");
+            Txt(dc, b, RECT{x, y, x + cw, y + 20}, g_fSmall, i == (int)g_stats.size() - 1 ? kText : kDim); y += 22;
+        }
+    }
+    // ---- Towers totals, per save slot
+    RECT rc{mid + 10, top, R, h - 28}; StatCard(rc);
+    x = rc.left + 26; y = rc.top + 20; cw = rc.right - rc.left - 52;
+    if (g_statSlot < 0) g_statSlot = std::clamp(_wtoi(FileWord(g_exeDir + L"\\mods\\towers\\active.txt", L"1").c_str()), 1, 3) - 1;
+    Txt(dc, L"TOWERS", RECT{x, y, x + 120, y + 18}, g_fCap, RGB(255, 200, 80));
+    for (int i = 0; i < 3; i++) {   // slot chips
+        RECT c{rc.right - 26 - (3 - i) * 74, y - 4, rc.right - 26 - (3 - i) * 74 + 66, y + 20};
+        bool on = i == g_statSlot, hv = g_hot == HIT_SLOT + i;
+        FillRound(c, 12, on ? 0x3A2E10 : hv ? 0x1E2A48 : 0x162038, 1.0); StrokeRound(c, 12, on ? 0xE8B33A : 0x34466C, 1.0);
+        Txt(dc, (L"SLOT " + std::to_wstring(i + 1)).c_str(), c, g_fCap, on ? RGB(255, 210, 110) : RGB(170, 185, 215), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        g_hits.push_back({c, HIT_SLOT + i});
+    }
+    y += 30;
+    // the climb in that slot now (its id is in the slot file); games of that climb
+    long long climb = 0; int you = 0;
+    if (FILE* f = _wfopen((g_exeDir + L"\\mods\\towers\\slot" + std::to_wstring(g_statSlot + 1) + L".txt").c_str(), L"rb")) {
+        char b[512]; while (fgets(b, sizeof b, f)) { if (!strncmp(b, "climb=", 6)) climb = atoll(b + 6); else if (!strncmp(b, "team=", 5)) you = atoi(b + 5); } fclose(f);
+    }
+    std::vector<const StatG*> cg;
+    for (auto& o : g_stats) if (o.towers && o.slot == g_statSlot + 1 && (climb ? o.climb == climb : o.you == you)) cg.push_back(&o);
+    if (!you) { Txt(dc, L"No climb in this slot yet. Pick Towers in the game's main menu to start one.", RECT{x, y, x + cw, y + 60}, g_fBody, kDim, DT_WORDBREAK); return; }
+    if (cg.empty()) { Txt(dc, L"No finished Towers games in this climb yet - they're counted from now on.", RECT{x, y, x + cw, y + 60}, g_fBody, kDim, DT_WORDBREAK); return; }
+    int py = 0, ry = 0, cyd = 0, td = 0, wins = 0; const StatG* best = nullptr; int bestY = -1;
+    std::map<std::wstring, std::pair<int, int>> passers, rushers, catchers;   // name -> (yards, td)
+    std::wstring team;
+    for (auto* o : cg) {
+        TeamTot t = Totals(*o, you); py += t.py; ry += t.ry; td += t.ptd + t.rtd;
+        if (t.py + t.ry > bestY) { bestY = t.py + t.ry; best = o; }
+        int mine = o->home == you ? o->hs : o->as, theirs = o->home == you ? o->as : o->hs; wins += mine > theirs;
+        if (team.empty()) team = o->home == you ? o->hn : o->an;
+        for (auto& p : o->p) if (p.team == you) {
+            cyd += p.cy;
+            if (p.att) { passers[p.name].first += p.py; passers[p.name].second += p.ptd; }
+            if (p.ratt) { rushers[p.name].first += p.ry; rushers[p.name].second += p.rtd; }
+            if (p.rec) { catchers[p.name].first += p.cy; catchers[p.name].second += p.ctd; }
+        }
+    }
+    {   wchar_t b[200]; swprintf(b, 200, L"%ls  \x2022  %zu game%ls, %d win%ls", team.c_str(), cg.size(), cg.size() == 1 ? L"" : L"s", wins, wins == 1 ? L"" : L"s");
+        Txt(dc, b, RECT{x, y, x + cw, y + 28}, g_fCardV, kText); y += 40; }
+    int mxT = std::max(py + ry, 1), bw = (cw - 12) / 2;
+    Bar(dc, x, y, bw, L"Passing yards", py, mxT, 0x2F8FFF); Bar(dc, x + bw + 12, y, bw, L"Rushing yards", ry, mxT, 0x3ED598); y += 44;
+    Bar(dc, x, y, bw, L"Receiving yards", cyd, mxT, 0x9C7CFF); Bar(dc, x + bw + 12, y, bw, L"Total yards", py + ry, mxT, 0xFFC440); y += 48;
+    {   wchar_t b[200]; swprintf(b, 200, L"%ls yards a game  \x2022  %d touchdowns", Num((py + ry) / (int)cg.size()).c_str(), td); Txt(dc, b, RECT{x, y, x + cw, y + 22}, g_fBodyB, RGB(255, 210, 110)); y += 32; }
+    auto leader = [&](const wchar_t* cap, std::map<std::wstring, std::pair<int, int>>& m) {
+        const std::wstring* n = nullptr; std::pair<int, int> v{};
+        for (auto& [k, val] : m) if (!n || val.first > v.first) { n = &k; v = val; }
+        wchar_t b[200]; swprintf(b, 200, L"%ls  %ls  \x2022  %ls yds, %d TD", cap, n ? n->c_str() : L"\x2014", Num(v.first).c_str(), v.second);
+        Txt(dc, b, RECT{x, y, x + cw, y + 20}, g_fSmall, kText); y += 22;
+    };
+    Txt(dc, L"CLIMB LEADERS", RECT{x, y, x + cw, y + 18}, g_fCap, RGB(140, 156, 190)); y += 22;
+    leader(L"Passing:", passers); leader(L"Rushing:", rushers); leader(L"Receiving:", catchers); y += 12;
+    Txt(dc, L"GAME BY GAME", RECT{x, y, x + cw, y + 18}, g_fCap, RGB(140, 156, 190)); y += 22;
+    for (int i = (int)cg.size() - 1; i >= 0 && y + 22 < rc.bottom - 10; i--) {
+        const StatG& o = *cg[i]; TeamTot t = Totals(o, you);
+        int mine = o.home == you ? o.hs : o.as, theirs = o.home == you ? o.as : o.hs;
+        const std::wstring& opp = o.home == you ? o.an : o.hn;
+        wchar_t b[200]; swprintf(b, 200, L"%ls %d-%d vs %ls   %ls pass, %ls rush, %ls total", mine > theirs ? L"W" : L"L", mine, theirs, opp.c_str(), Num(t.py).c_str(), Num(t.ry).c_str(), Num(t.py + t.ry).c_str());
+        Txt(dc, b, RECT{x, y, x + cw, y + 20}, g_fSmall, &o == best ? RGB(255, 210, 110) : kDim); y += 22;
+    }
+}
+
 // picture, shading and the sidebar's backdrop - the same every frame, so kept
 static void BuildBase(HDC sdc, HDC dc, int w, int h) {
     int cx = kSideW, cw = w - cx;
@@ -552,8 +710,9 @@ static void BuildFrame() {
     } else {
         Txt(dc, kPageNames[g_page], RECT{cx + 40, 20, w - 40, 64}, g_fH1, kText);
         RECT ul{cx + 42, 62, cx + 98, 65}; GlowRound(ul, 2, kAccent, 5, 0.7); FillRound(ul, 2, kAccent, 1.0);
-        const wchar_t* sub = g_page == PAGE_SETTINGS ? L"Game files, renderer and picture quality" : g_page == PAGE_MODS ? L"Roster, players per side and the pre-game lineup window" : g_page == PAGE_ONLINE ? L"Your gamertag, and playing a friend in Xbox Live mode" : L"Everything the game prints while it runs (also saved to madden_log.txt)";
+        const wchar_t* sub = g_page == PAGE_STATS ? L"Yards from your games: the last game, recent games, and each Towers climb" : g_page == PAGE_SETTINGS ? L"Game files, renderer and picture quality" : g_page == PAGE_MODS ? L"Roster, players per side and the pre-game lineup window" : g_page == PAGE_ONLINE ? L"Your gamertag, and playing a friend in Xbox Live mode" : L"Everything the game prints while it runs (also saved to madden_log.txt)";
         Txt(dc, sub, RECT{cx + 42, 70, w - 40, 92}, g_fBody, kDim);
+        if (g_page == PAGE_STATS) { DrawStatsPage(dc, cx, w, h); GdiFlush(); SelectObject(dc, old); DeleteDC(dc); ReleaseDC(nullptr, sdc); return; }
         g_card = RECT{cx + 32, 100, w - 32, h - 28};
         GlowRound(g_card, 14, 0x1C3A6E, 10, 0.5);
         FillRound(g_card, 14, (uint32_t)GetRValue(kCardC) << 16 | GetGValue(kCardC) << 8 | GetBValue(kCardC), 1.0);

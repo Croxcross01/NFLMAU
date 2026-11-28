@@ -18,6 +18,8 @@
 #include <commctrl.h>
 #include <cmath>
 #include <cwctype>
+#include <map>
+#include <ctime>
 
 static HWND g_wnd, g_path, g_log, g_play, g_trace, g_status;
 static HANDLE g_proc = nullptr;
@@ -306,6 +308,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
         int t = HitAt((short)LOWORD(lp), (short)HIWORD(lp));
         if (was && t >= HIT_NAV && t < HIT_NAV + PAGE_COUNT) { if (t - HIT_NAV != g_page) ShowTab(t - HIT_NAV); }
         else if (was && (t == HIT_PLAY || t == HIT_TOWER)) { OnPlay(); Repaint(); }
+        else if (was && t >= HIT_SLOT && t < HIT_SLOT + 3) { g_statSlot = t - HIT_SLOT; Repaint(); }
         else if (was && t >= HIT_CARD && t < HIT_CARD + 3) ShowTab(t == HIT_CARD + 2 ? PAGE_MODS : PAGE_SETTINGS);
         else Repaint();
         return 0; }
@@ -315,6 +318,7 @@ L"Everything shown here is also saved to madden_log.txt next to this launcher.\n
         SetTextColor((HDC)wp, kText); SetBkColor((HDC)wp, kEditBg); return (LRESULT)g_editBrush;
     case WM_TIMER:
         if (wp == 11) { if (g_page == PAGE_PLAY && !g_proc && !IsIconic(hw) && IsWindowVisible(hw)) { g_animFrame = true; BuildFrame(); g_animFrame = false; InvalidateRect(hw, &g_animRect, FALSE); } return 0; }
+        if (wp == 7 && g_page == PAGE_STATS) Repaint();   // a game just ended: new numbers
         if (wp == 7) CheckModUpdate(false); if (wp == 8) CheckForUpdate(); if (wp == 9) PollWho(); if (wp == 10) { KillTimer(hw, 10); if (!g_proc) OnPlay(true); } return 0;
     case WM_UPD: OnUpdMessage(wp, lp); return 0;
     case WM_HOST_READY: HostReady((HostResult*)lp); return 0;

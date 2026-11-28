@@ -28,6 +28,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -39,7 +40,7 @@ std::string g_gameDir, g_modsDir;
 bool g_enabled = false;     // on unless mods/towers.off
 bool g_armed = false;       // team select was opened from the Towers button
 bool g_inGame = false;      // the current match is a Towers game
-struct State { int team = 0, rung = 0, wins = 0, losses = 0; std::vector<int> order; } g_st;
+struct State { int team = 0, rung = 0, wins = 0, losses = 0; long long climb = 0; std::vector<int> order; } g_st;
 std::map<int, std::string> g_names, g_abbr, g_tdan;
 int g_userSide = 0;   // side your controller is on in the current Towers game (0 home, 1 away)
  std::map<int, int> g_ovr; std::map<int, uint32_t> g_col;
@@ -72,6 +73,7 @@ void Save() {
         fprintf(f, "team=%d\nrung=%d\nwins=%d\nlosses=%d\norder=", g_st.team, g_st.rung, g_st.wins, g_st.losses);
         for (size_t i = 0; i < g_st.order.size(); i++) fprintf(f, "%s%d", i ? "," : "", g_st.order[i]);
         fputs("\n", f);
+        fprintf(f, "climb=%lld\n", g_st.climb);   // which climb this is (the stats file tags its games with it)
         // names for the launcher's Towers card (read only by the launcher)
         fprintf(f, "name=%s\n", Name(g_st.team).c_str());
         if (g_col.count(g_st.team)) fprintf(f, "color=%06X\n", (unsigned)(g_col[g_st.team] & 0xFFFFFF));
@@ -92,6 +94,7 @@ bool ReadState(const std::string& path, State& g_st) {
         std::string k = l.substr(0, e), v = l.substr(e + 1);
         if (k == "team") g_st.team = atoi(v.c_str()); else if (k == "rung") g_st.rung = atoi(v.c_str());
         else if (k == "wins") g_st.wins = atoi(v.c_str()); else if (k == "losses") g_st.losses = atoi(v.c_str());
+        else if (k == "climb") g_st.climb = atoll(v.c_str());
         else if (k == "order") { size_t p = 0; while (p < v.size()) { size_t c = v.find(',', p); g_st.order.push_back(atoi(v.substr(p, c - p).c_str())); if (c == std::string::npos) break; p = c + 1; } }
     }
     fclose(f);
@@ -121,7 +124,7 @@ void LoadTeams() {
 std::string Name(int id) { auto it = g_names.find(id); return it == g_names.end() ? "team " + std::to_string(id) : it->second; }
 void StartClimb(int team) {
     LoadTeams();
-    g_st = State(); g_st.team = team;
+    g_st = State(); g_st.team = team; g_st.climb = (long long)time(nullptr);
     for (auto& [id, o] : g_ovr) if (id != team) g_st.order.push_back(id);
     std::stable_sort(g_st.order.begin(), g_st.order.end(), [](int a, int b) { return g_ovr[a] != g_ovr[b] ? g_ovr[a] < g_ovr[b] : a < b; });
     Save();
@@ -255,6 +258,15 @@ void TowersTeamSelect(bool towers) {
         else fprintf(stderr, "[towers] Towers: %s vs %s (game %d of %zu)\n", Name(g_st.team).c_str(), Name(g_st.order[g_st.rung]).c_str(), g_st.rung + 1, g_st.order.size());
     }
 }
+
+// For the stats file: the Towers game being played now (false if this match is not one), and team names.
+bool TowersCurrent(int& slot, long long& climb, int& team, int& opp, int& rung) {
+    std::lock_guard<std::mutex> l(g_m);
+    if (!g_enabled || !g_inGame || !g_st.team || Done()) return false;
+    slot = g_slot + 1; climb = g_st.climb; team = g_st.team; opp = g_st.order[g_st.rung]; rung = g_st.rung + 1;
+    return true;
+}
+std::string TowersTeamName(int id) { std::lock_guard<std::mutex> l(g_m); LoadTeams(); return Name(id); }
 
 // Every database query the game runs (mod_hooks.cpp): sets the teams of a Towers game and reads its result.
 void TowersQuery(const std::string& t, size_t nargs, const std::function<uint32_t(size_t)>& get, const std::function<void(size_t, uint32_t)>& set) {
