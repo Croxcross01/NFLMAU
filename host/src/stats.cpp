@@ -34,6 +34,7 @@ namespace {
 std::mutex g_m;
 std::string g_gameDir, g_modsDir;
 bool g_pending = false, g_done = false;
+int g_home = 0, g_away = 0;   // this match's teams (from the match setup, after Towers put its teams in)
 uint32_t g_res[3] = {};
 thread_local bool t_busy = false;   // our own queries pass through the query hook too
 
@@ -64,11 +65,8 @@ void LoadPlayers() {
 void Capture(int homeScore, int awayScore) {
     LoadPlayers();
     uint32_t buf = ModGuestAlloc(64);
-    // the two teams (GINF: GHTG home, GATG away)
-    WriteU32(buf, 0); WriteU32(buf + 4, 0);
-    ModGuestQuery("select 'GTHG' into \x85 and 'GTAG' into \x85 from 'FNIG'\n", {buf, buf + 4});
-    int homeId = (int)ReadU32(buf), awayId = (int)ReadU32(buf + 4);
-    if (homeId < 1 || homeId > 40 || awayId < 1 || awayId > 40) { fprintf(stderr, "[stats] could not read the game's teams (%d, %d)\n", homeId, awayId); return; }
+    int homeId = g_home, awayId = g_away;
+    if (homeId < 1 || homeId > 40 || awayId < 1 || awayId > 40) { fprintf(stderr, "[stats] this game's teams are not known (%d, %d)\n", homeId, awayId); return; }
     static const char* kF[] = {"ayag", "taag", "ccag", "dtag", "niag", "ayug", "taug", "dtug", "aycg", "accg", "dtcg"};
     std::string q = "select ";
     for (int k = 0; k < 11; k++) q += std::string(k ? " and '" : "'") + kF[k] + "' into \x82";
@@ -109,6 +107,8 @@ void Capture(int homeScore, int awayScore) {
 
 void StatsInit(const std::string& gameDir, const std::string& modsDir) { std::lock_guard<std::mutex> l(g_m); g_gameDir = gameDir; g_modsDir = modsDir; }
 void StatsMatchStart() { std::lock_guard<std::mutex> l(g_m); g_done = false; g_pending = false; }
+// The match setup's record (mod_hooks.cpp ModMatchTeams): team ids at +192 (home) and +200 (away).
+void StatsMatchTeams(uint32_t rec) { std::lock_guard<std::mutex> l(g_m); g_home = (int)ReadU32(rec + 192); g_away = (int)ReadU32(rec + 200); fprintf(stderr, "[stats] match: team %d (home) vs team %d (away)\n", g_home, g_away); }
 
 // Every database query (mod_hooks.cpp, before the Towers hook): the final score is read with
 // select 'ELQG' into ? and 'CSHG' into ? and 'CSAG' into ? ... and is in place by the next query.

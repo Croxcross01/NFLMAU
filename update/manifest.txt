@@ -1,5 +1,5 @@
-version=1.0.58
-pack=update/pack-1.0.58.zip
-sha256=c6e430ea3e363d31a9dae902d81549037414e469693ae6fdf8cadf994c90dce1
+version=1.0.59
+pack=update/pack-1.0.59.zip
+sha256=64ed8716cf810e5545769c2d24ac3cb091d9ec4131576a4076d815c87724fd33
 rebuild=0
-notes=Stats page: game stats are now read at the end of each game.
+notes=Stats page: fixed reading which two teams played.

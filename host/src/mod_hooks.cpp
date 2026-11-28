@@ -613,7 +613,7 @@ bool GuardReleaseInline(PPCRegister& r1, PPCRegister& r11, PPCRegister& r26, PPC
 // team ids of the match and their roster file names (TDAN), once per match setup.
 void ModMatchTeams(PPCRegister& r1, PPCRegister& r31) {
     auto str = [](uint32_t a) { std::string o; for (int i = 0; i < 40; i++) { char c = (char)g_base[a + i]; if (!c) break; o += (c >= 32 && c < 127) ? c : '?'; } return o; };
-    { void StatsMatchStart(); StatsMatchStart(); void TowersMatchTeams(uint32_t, uint32_t); TowersMatchTeams(r31.u32, r1.u32); }   // Towers: your team vs the tower's next opponent
+    { void StatsMatchStart(); StatsMatchStart(); void TowersMatchTeams(uint32_t, uint32_t); TowersMatchTeams(r31.u32, r1.u32); void StatsMatchTeams(uint32_t); StatsMatchTeams(r31.u32); }   // Towers: your team vs the tower's next opponent
     g_matchHome = ReadU32(r31.u32 + 192); g_matchAway = ReadU32(r31.u32 + 200); g_matchSeq++;
     { extern std::atomic<int64_t> g_matchLoadStart; g_matchLoadStart = std::chrono::steady_clock::now().time_since_epoch().count(); }
     fprintf(stderr, "[mods] match teams: home %u (%s), away %u (%s)\n", g_matchHome, str(r1.u32 + 176).c_str(),
