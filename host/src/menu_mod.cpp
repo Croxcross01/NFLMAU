@@ -33,7 +33,7 @@ static bool AddTowers(const std::string& arc, const char* name, uint32_t entry) 
 
 void InstallMenuMods(const std::string& gameDir, const std::string& modsDir) {
     void TowersInit(const std::string&, const std::string&); TowersInit(gameDir, modsDir);
-    void StatsInit(const std::string&); StatsInit(modsDir);
+    void StatsInit(const std::string&, const std::string&); StatsInit(gameDir, modsDir);
     if (Exists(modsDir + "/towers.off")) return;   // Towers is on unless mods/towers.off
     bool a = AddTowers(gameDir + "/qkl_ram.ast", "qkl_ram.ast", 234), b = AddTowers(gameDir + "/qkl_interface.ast", "qkl_interface.ast", 121);
     if (a || b) fprintf(stderr, "[mods] menu: Towers button added under Play Now%s%s\n", a ? " [ram]" : "", b ? " [interface]" : "");

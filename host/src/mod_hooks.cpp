@@ -793,6 +793,16 @@ uint32_t GuestQuery(PPCContext& live, uint32_t q, std::initializer_list<uint32_t
 }
 }   // namespace
 
+// The game's own query, run from the host while the game is inside its query code (stats.cpp): text uses the game's
+// markers (\x85 a number / a pointer to one, \x88 a string). Query texts are kept (one copy each).
+uint32_t ModGuestQuery(const std::string& text, std::initializer_list<uint32_t> args) {
+    PPCContext* live = CurrentGuestContext(); if (!live) return 0xFFFFFFFFu;
+    static std::map<std::string, uint32_t> qs;
+    auto it = qs.find(text); uint32_t q = it != qs.end() ? it->second : (qs[text] = GuestString(text.c_str()));
+    return GuestQuery(*live, q, args);
+}
+uint32_t ModGuestAlloc(uint32_t n) { return GuestAlloc(n, 16); }
+
 void StadiumAdd(PPCContext& live) {
     if (g_stadiums.empty() || t_inStadiumAdd) return;
     t_inStadiumAdd = true;
