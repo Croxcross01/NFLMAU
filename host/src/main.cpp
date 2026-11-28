@@ -277,7 +277,7 @@ int main(int argc, char** argv) {
             if (BuildRosterSet(gd, mods + "/rosters/2027", mods + "/rosters/2027/online", false)) fprintf(stderr, "[mods] roster: online games use the 2027 roster (without personal ratings)\n");
         } else if (okName) BuildRosterSet(gd, mods + "/rosters/" + set);
         void InstallPlaybookEdits(const std::string&, const std::string&); InstallPlaybookEdits(gd, mods);
-        void InstallMenuMods(const std::string&, const std::string&); InstallMenuMods(gd, mods);   // main menu buttons (Towers)   // edited plays (dev tools)
+        void InstallMenuMods(const std::string&, const std::string&); InstallMenuMods(gd, mods); void InstallTitleMod(const std::string&, const std::string&); InstallTitleMod(gd, mods);   // main menu buttons (Towers)   // edited plays (dev tools)
         void OnlineStartup(); OnlineStartup();   // hosting: the lobby for friends opens now, not when the menu is reached
     }
 

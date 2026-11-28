@@ -1,5 +1,5 @@
-version=1.0.53
-pack=update/pack-1.0.53.zip
-sha256=50d476b1d7914e6188da24fdc31b7f00ed28326987d5014cafa30754f5d57482
+version=1.0.54
+pack=update/pack-1.0.54.zip
+sha256=fd1560793aab4d7a08fc0cd7ee504be5aaf3188a9118a82156dee5d370cc6dae
 rebuild=0
-notes=Starters fixed: the best players now start for every team (Josh Allen over Kyle Allen for the Bills, and over 1,200 other depth chart spots across the league). Your roster rebuilds itself the next time you press Play.
+notes=New title screen: the PRESS START screen now shows the Madden Arcade Unleashed artwork. Put an empty file called title.off in the mods folder to get the game's original title back.
