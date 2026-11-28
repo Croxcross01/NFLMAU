@@ -1,5 +1,5 @@
-version=1.0.54
-pack=update/pack-1.0.54.zip
-sha256=fd1560793aab4d7a08fc0cd7ee504be5aaf3188a9118a82156dee5d370cc6dae
+version=1.0.55
+pack=update/pack-1.0.55.zip
+sha256=ddd941a2eec3a61d2ad90b97a36e948e7dd28e6b0032df31726a88fc4c3deee5
 rebuild=0
-notes=New title screen: the PRESS START screen now shows the Madden Arcade Unleashed artwork. Put an empty file called title.off in the mods folder to get the game's original title back.
+notes=Small behind-the-scenes improvements.

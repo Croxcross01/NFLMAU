@@ -19,6 +19,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <io.h>
+#include <fcntl.h>
 
 namespace {
 constexpr uint32_t kLoop = 0x7F000001, kFriendOnHost = 0x7F000002, kHostOnFriend = 0x7F000003;
@@ -89,6 +91,11 @@ void OnMessage(const std::string& m) {
     case 3: if (m.size() >= 5) Close(Get32(m, 1), false); break;
     case 5: if (m.size() >= 2 && m.size() >= 2u + (uint8_t)m[1]) {
         std::string key = m.substr(2, (uint8_t)m[1]), val = m.substr(2 + (uint8_t)m[1]);
+        if (key == "log") {   // the other player's game log, kept next to ours so both sides of a match can be read
+            static FILE* f = fopen("other_player_log.txt", "wb");
+            if (f) { fwrite(val.data(), 1, val.size(), f); fflush(f); }
+            break;
+        }
         { std::lock_guard<std::mutex> l(g_syncM); g_sync[key] = val; }
         g_syncCv.notify_all();
         fprintf(stderr, "[relay] got '%s' from the other player\n", key.c_str());
@@ -137,6 +144,31 @@ void Run(std::wstring url) {
         Sleep(1000);
     }
 }
+// Our log goes to the other player's PC as well (other_player_log.txt there): stderr is passed through a pipe, and
+// what comes out is written to the real log and sent on every couple of seconds.
+void ShareLog() {
+    int fds[2];
+    if (_pipe(fds, 1 << 16, _O_BINARY) != 0) return;
+    int orig = _dup(2); if (orig < 0) return;
+    fflush(stderr);
+    if (_dup2(fds[1], 2) != 0) return;
+    setvbuf(stderr, nullptr, _IONBF, 0);
+    static std::mutex bm; static std::string pending;
+    std::thread([r = fds[0], orig] {
+        char b[8192]; int n;
+        while ((n = _read(r, b, sizeof b)) > 0) { _write(orig, b, n); std::lock_guard<std::mutex> l(bm); if (pending.size() < (8u << 20)) pending.append(b, n); }
+    }).detach();
+    std::thread([] {
+        for (;;) {
+            Sleep(2000);
+            std::string chunk; { std::lock_guard<std::mutex> l(bm); chunk.swap(pending); }
+            for (size_t o = 0; o < chunk.size(); o += 60000) {
+                std::string m(1, '\5'); m += (char)3; m += "log"; m.append(chunk, o, 60000);
+                if (!Send(m)) { std::lock_guard<std::mutex> l(bm); pending.insert(0, chunk, o, std::string::npos); break; }   // not connected yet: keep it
+            }
+        }
+    }).detach();
+}
 }   // namespace
 
 // Starts the tunnel (once). host: this PC hosts; room: the join code; url: the relay server.
@@ -146,6 +178,7 @@ void RelayStart(bool host, const std::string& room, const std::string& url) {
     std::wstring u(url.begin(), url.end()), r(room.begin(), room.end());
     std::wstring full = u + L"/room/" + r + L"/game?role=" + (host ? L"host" : L"join");
     hn::Init();
+    ShareLog();
     if (!host) for (uint16_t p : {(uint16_t)25860, (uint16_t)42127, (uint16_t)25861, (uint16_t)10899, (uint16_t)25862, (uint16_t)25863}) std::thread(Listen, p).detach();
     std::thread(Run, full).detach();
     fprintf(stderr, "[relay] online through the relay server, room %s (%s)\n", room.c_str(), host ? "hosting" : "joining");
