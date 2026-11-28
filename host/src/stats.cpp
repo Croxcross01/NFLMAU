@@ -57,7 +57,7 @@ std::vector<Found> FindMatchDbs(int home, int away) {
     for (auto [s, e] : Regions()) {
         for (uint32_t p = s; p + 64 < e; p += 4) {
             const uint8_t* q = g_base + p;
-            if (q[0] != 'D' || q[1] != 'B' || q[2] != 0 || q[3] != 8) continue;
+            if (q[0] != 'D' || q[1] != 'B' || q[2] != 0) continue;
             uint32_t n = gdb::BE32(q + 16); if (n < 3 || n > 64) continue;
             bool has = false;
             for (uint32_t i = 0; i < n && 24 + i * 8 + 4 <= e - p; i++) if (!memcmp(q + 24 + i * 8, "FOGP", 4)) has = true;
@@ -76,8 +76,30 @@ std::vector<Found> FindMatchDbs(int home, int away) {
     return out;
 }
 
+// Where the stats tables are, when they are not found as a whole database: every place the name "FOGP" (PGOF as
+// stored) appears in the game's memory, with the bytes around it, so the layout can be worked out from the log.
+void Diagnose() {
+    auto regs = Regions(); uint64_t total = 0; for (auto [s, e] : regs) total += e - s;
+    fprintf(stderr, "[stats] looked through %zu memory areas (%llu MB)\n", regs.size(), (unsigned long long)(total >> 20));
+    int hits = 0;
+    for (auto [s, e] : regs) for (uint32_t p = s; p + 64 < e && hits < 12; p++) {
+        const uint8_t* q = g_base + p;
+        bool a = !memcmp(q, "FOGP", 4), b = !memcmp(q, "PGOF", 4);
+        if (!a && !b) continue;
+        hits++;
+        std::string hx; char t[8];
+        uint32_t from = p >= s + 64 ? p - 64 : s;
+        for (uint32_t k = from; k < p + 96 && k < e; k++) { snprintf(t, sizeof t, "%02X", g_base[k]); hx += t; if (k + 1 == p) hx += "|"; }
+        fprintf(stderr, "[stats] '%s' at %08X: %s\n", a ? "FOGP" : "PGOF", p, hx.c_str());
+        // a "DB" header before it?
+        for (uint32_t k = p & ~3u; k >= s && k + 0x10000 > p; k -= 4) if (g_base[k] == 'D' && g_base[k + 1] == 'B') { fprintf(stderr, "[stats]   'DB' %u bytes before it at %08X: %02X %02X %02X %02X, tables %u\n", p - k, k, g_base[k], g_base[k + 1], g_base[k + 2], g_base[k + 3], gdb::BE32(g_base + k + 16)); break; }
+    }
+    if (!hits) fprintf(stderr, "[stats] the stats table name was not found in memory\n");
+}
+
 void Capture(int homeScore, int awayScore) {
     auto dbs = FindMatchDbs(homeScore, awayScore);
+    if (dbs.empty()) Diagnose();
     Found* best = nullptr;
     for (auto& f : dbs) if (!best || f.score > best->score) best = &f;
     if (!best || best->score < 1) { fprintf(stderr, "[stats] no player stats found for this game (%zu databases looked at)\n", dbs.size()); return; }
@@ -129,6 +151,12 @@ void StatsMatchStart() { std::lock_guard<std::mutex> l(g_m); g_done = false; g_p
 void StatsQuery(const std::string& t, size_t nargs, const std::function<uint32_t(size_t)>& get) {
     std::lock_guard<std::mutex> l(g_m);
     if (g_modsDir.empty()) return;
+    {   // which queries use the stats tables (to learn how the game keeps them)
+        static std::map<std::string, int> seen;
+        if (seen.size() < 80 && (t.find("FOGP") != std::string::npos || t.find("AGLP") != std::string::npos || t.find("AGST") != std::string::npos) && !seen.count(t)) {
+            seen[t] = 1; fprintf(stderr, "[stats] query: %s\n", t.substr(0, 300).c_str());
+        }
+    }
     if (g_pending) {
         g_pending = false;
         bool ok = true;

@@ -1,5 +1,5 @@
-version=1.0.56
-pack=update/pack-1.0.56.zip
-sha256=d77027e20b19f1498bbe4976ec9122e954a8f47d7c77c94d704aaf69a947715d
+version=1.0.57
+pack=update/pack-1.0.57.zip
+sha256=48ac70fb37622e861d9e83e8b56597d9c54c04fb9c161740eb6866013df12f21
 rebuild=0
-notes=New Stats page in the launcher: passing, rushing and receiving yards from every game - the last game's box score, recent games, and running totals for each Towers climb.
+notes=Stats page fix (work in progress).
